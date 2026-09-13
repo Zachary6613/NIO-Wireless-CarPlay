@@ -1,14 +1,12 @@
 # LIVI 修改与开发
 
-## 源码基线
+## 本地源码
 
-- 上游仓库：`https://github.com/f-io/LIVI.git`
-- 导入分支：`main`
-- 导入提交：`4bfd62a004de1d114748759943521a7d8917c279`
 - 本地目录：`software/LIVI/`
+- 初始导入版本：`4bfd62a004de1d114748759943521a7d8917c279`
 
-LIVI 源码已作为本项目的一部分导入，不是 Git submodule，因此可以直接修改并随本项目提交。
-上游项目采用 GPL-3.0；修改和分发时保留 `software/LIVI/LICENSE` 与版权信息。
+LIVI 源码已完全本地化为本项目的一部分，不是 Git submodule，也不依赖外部仓库。可以直接修改并
+随本项目提交。原项目采用 GPL-3.0；修改和分发时保留 `software/LIVI/LICENSE` 与版权信息。
 
 ## 推荐分支
 
@@ -53,14 +51,4 @@ Rev A 没有电源控制 GPIO。调试 I2C 前停止 LIVI，然后从项目根�
 ./scripts/check-mfi.sh 1
 ```
 
-## 同步上游
-
-本仓库保留一个名为 `livi-upstream` 的远程地址后，可使用：
-
-```bash
-git fetch livi-upstream
-git subtree pull --prefix=software/LIVI livi-upstream main --squash
-```
-
-在执行 subtree 同步前先提交本地修改，并在独立分支中操作；上游目录规模较大，冲突时不要直接
-覆盖自己的网页桥接改动。
+后续版本以本仓库为准，不配置 LIVI 上游 remote，也不需要 subtree/submodule 操作。
