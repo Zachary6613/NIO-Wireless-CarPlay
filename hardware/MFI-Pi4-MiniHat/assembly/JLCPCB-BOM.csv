@@ -1,0 +1,5 @@
+Comment,Designator,Footprint,LCSC Part #,Manufacturer Part Number,Assembly
+MFI343S00177-L,U1,XDFN-8_2x3mm_P0.5mm,C33770534,MFI343S00177-L,SMT top
+100nF 50V X7R,C1,0603,C14663,CC0603KRX7R9BB104,SMT top
+12k 1%,"R1,R2",0603,C114659,RC0603FR-0712KL,SMT top
+2x3 female 2.54mm,J1,PinSocket_2x03_P2.54mm,,User selected,DNP - hand solder on bottom

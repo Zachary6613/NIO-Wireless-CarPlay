@@ -1,0 +1,17 @@
+packages:
+  - native/livi-gst-video
+  - native/livi-crypto
+allowBuilds:
+  electron-winstaller: true
+  esbuild: true
+  protobufjs: true
+  unrs-resolver: true
+minimumReleaseAge: 0
+supportedArchitectures:
+  os:
+    - current
+    - darwin
+  cpu:
+    - current
+    - x64
+    - arm64

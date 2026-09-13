@@ -1,0 +1,24 @@
+Drill report for MFI-Pi4-MiniHat.kicad_pcb
+Created on 2026-09-13T12:30:45
+
+Copper Layer Stackup:
+    =============================================================
+    L1 :  F.Cu                      front
+    L2 :  B.Cu                      back
+
+
+Drill file 'MFI-Pi4-MiniHat.drl' contains
+    plated through holes:
+    =============================================================
+    T1  0.300mm  0.0118"  (4 holes))
+    T2  0.350mm  0.0138"  (5 holes))
+    T3  1.000mm  0.0394"  (6 holes))
+
+    Total plated holes count 15
+
+
+Not plated through holes are merged with plated holes
+    unplated through holes:
+    =============================================================
+
+    Total unplated holes count 0

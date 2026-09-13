@@ -1,0 +1,164 @@
+** Drc report for MFI-Pi4-MiniHat.kicad_pcb **
+** Created on 2026-09-13T12:24:03 **
+** Report includes: Errors, Warnings **
+
+** Found 39 DRC violations **
+[shorting_items]: 短路了两个不同网络的项目 (网络 SDA 和 GND)
+    Local override; error
+    @(18.8000 mm, 3.7000 mm): Track [SDA] on B.Cu, length 4.5500 mm
+    @(18.5000 mm, 6.2000 mm): Via [GND] on F.Cu - B.Cu
+[shorting_items]: 短路了两个不同网络的项目 (网络 +3V3 和 GND)
+    Local override; error
+    @(17.4500 mm, 6.7500 mm): Pad 8 [+3V3] of U1 on F.Cu
+    @(17.4500 mm, 7.2500 mm): Track [GND] on F.Cu, length 1.4849 mm
+[clearance]: 间距违规 ( 间距 0.2000 mm; 实际 0.1500 mm)
+    Local override; error
+    @(17.4500 mm, 7.2500 mm): Pad 7 [GND] of U1 on F.Cu
+    @(17.4500 mm, 3.7500 mm): Track [+3V3] on F.Cu, length 3.0000 mm
+[shorting_items]: 短路了两个不同网络的项目 (网络 SCL 和 SDA)
+    Local override; error
+    @(20.5000 mm, 7.7500 mm): Track [SCL] on F.Cu, length 3.0500 mm
+    @(18.8000 mm, 8.2500 mm): Via [SDA] on F.Cu - B.Cu
+[clearance]: 间距违规 ( 间距 0.2000 mm; 实际 0.0940 mm)
+    Local override; error
+    @(8.0000 mm, 12.5000 mm): Pad 1 [GND] of TP4 on F.Cu
+    @(9.0000 mm, 12.2000 mm): Via [SCL] on F.Cu - B.Cu
+[clearance]: 间距违规 ( 间距 0.2000 mm; 实际 0.0000 mm)
+    Local override; error
+    @(7.5400 mm, 5.0000 mm): PTH pad 2 [<no net>] of J1
+    @(9.0000 mm, 5.0000 mm): Pad 1 [SDA] of TP2 on F.Cu
+[shorting_items]: 短路了两个不同网络的项目 (网络 GND 和 SCL)
+    Local override; error
+    @(7.5400 mm, 10.0800 mm): PTH pad 6 [GND] of J1
+    @(9.0000 mm, 10.0000 mm): Pad 1 [SCL] of TP3 on F.Cu
+[copper_edge_clearance]: 电路板边缘间距违规 (<电路板配置> 中的 "板边" 约束 间距 0.5000 mm; 实际 0.4000 mm)
+    Rule: <电路板配置> 中的 "板边" 约束; error
+    @(2.0000 mm, 1.5000 mm): Rectangle on Edge.Cuts
+    @(9.0000 mm, 2.5000 mm): Pad 1 [+3V3] of TP1 on F.Cu
+[copper_edge_clearance]: 电路板边缘间距违规 (<电路板配置> 中的 "板边" 约束 间距 0.5000 mm; 实际 0.4000 mm)
+    Rule: <电路板配置> 中的 "板边" 约束; error
+    @(2.0000 mm, 1.5000 mm): Rectangle on Edge.Cuts
+    @(8.0000 mm, 12.5000 mm): Pad 1 [GND] of TP4 on F.Cu
+[starved_thermal]: 缓释热焊盘 (花焊盘) 与填充区的连接不完整 (层 F.Cu; 填充区 最小引线数量 2; 实际 1)
+    Local override; error
+    @(2.3000 mm, 1.8000 mm): Zone [GND] on F.Cu, priority 0
+    @(8.0000 mm, 12.5000 mm): Pad 1 [GND] of TP4 on F.Cu
+[solder_mask_bridge]: 顶层阻焊开窗区域与不同网络的项目相连
+    Rule: <电路板配置> 中的 "阻焊层最小宽度"; error
+    @(17.4500 mm, 7.2500 mm): Track [GND] on F.Cu, length 1.4849 mm
+    @(17.4500 mm, 6.7500 mm): Pad 8 [+3V3] of U1 on F.Cu
+[solder_mask_bridge]: 顶层阻焊开窗区域与不同网络的项目相连
+    Rule: <电路板配置> 中的 "阻焊层最小宽度"; error
+    @(9.0000 mm, 5.0000 mm): Pad 1 [SDA] of TP2 on F.Cu
+    @(7.5400 mm, 5.0000 mm): PTH pad 2 [<no net>] of J1
+[solder_mask_bridge]: 顶层阻焊开窗区域与不同网络的项目相连
+    Rule: <电路板配置> 中的 "阻焊层最小宽度"; error
+    @(9.0000 mm, 10.0000 mm): Pad 1 [SCL] of TP3 on F.Cu
+    @(7.5400 mm, 10.0800 mm): PTH pad 6 [GND] of J1
+[silk_edge_clearance]: Silkscreen clipped by board edge
+    Rule: <电路板配置> 中的 "丝印" 约束; warning
+    @(2.0000 mm, 1.5000 mm): Rectangle on Edge.Cuts
+    @(9.0000 mm, 1.5000 mm): Reference field of TP1
+[silk_edge_clearance]: Silkscreen clipped by board edge
+    Rule: <电路板配置> 中的 "丝印" 约束; warning
+    @(2.0000 mm, 1.5000 mm): Rectangle on Edge.Cuts
+    @(8.0000 mm, 13.5000 mm): Reference field of TP4
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(5.0000 mm, 5.0000 mm): Footprint J1
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(16.0000 mm, 7.5000 mm): Footprint U1
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(12.0000 mm, 3.5000 mm): Footprint R1
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(12.0000 mm, 11.5000 mm): Footprint R2
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(19.5000 mm, 3.5000 mm): Footprint C1
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(9.0000 mm, 2.5000 mm): Footprint TP1
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(9.0000 mm, 5.0000 mm): Footprint TP2
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(9.0000 mm, 10.0000 mm): Footprint TP3
+[lib_footprint_issues]: 当前配置中不包含封装库 'Custom'
+    Local override; warning
+    @(8.0000 mm, 12.5000 mm): Footprint TP4
+[text_height]: 文字高度超出范围 (<电路板配置> 中的 "丝印文本高度" 约束 最小高度 0.8000 mm; 实际 0.7000 mm)
+    Rule: <电路板配置> 中的 "丝印文本高度" 约束; warning
+    @(4.0000 mm, 2.5000 mm): PCB text 'PIN 1' on f.silkscreen
+[silk_overlap]: Silkscreen clearance
+    Rule: <电路板配置> 中的 "丝印" 约束; warning
+    @(3.7000 mm, 3.7000 mm): Rectangle of J1 on f.silkscreen
+    @(9.0000 mm, 4.0000 mm): Reference field of TP2
+[silk_overlap]: Silkscreen clearance
+    Rule: <电路板配置> 中的 "丝印" 约束; warning
+    @(3.7000 mm, 3.7000 mm): Rectangle of J1 on f.silkscreen
+    @(9.0000 mm, 11.0000 mm): Reference field of TP3
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(13.9500 mm, 6.7500 mm): Circle of U1 on f.silkscreen
+    @(14.5500 mm, 6.7500 mm): Pad 1 [GND] of U1 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(12.0000 mm, 12.7000 mm): Reference field of R2
+    @(11.2000 mm, 11.5000 mm): Pad 1 [+3V3] of R2 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(12.0000 mm, 12.7000 mm): Reference field of R2
+    @(12.8000 mm, 11.5000 mm): Pad 2 [SCL] of R2 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(9.0000 mm, 4.0000 mm): Reference field of TP2
+    @(7.5400 mm, 5.0000 mm): PTH pad 2 [<no net>] of J1
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(9.0000 mm, 4.0000 mm): Reference field of TP2
+    @(9.0000 mm, 5.0000 mm): Pad 1 [SDA] of TP2 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(9.0000 mm, 1.5000 mm): Reference field of TP1
+    @(9.0000 mm, 2.5000 mm): Pad 1 [+3V3] of TP1 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(3.7000 mm, 3.7000 mm): Rectangle of J1 on f.silkscreen
+    @(9.0000 mm, 10.0000 mm): Pad 1 [SCL] of TP3 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(3.7000 mm, 3.7000 mm): Rectangle of J1 on f.silkscreen
+    @(9.0000 mm, 5.0000 mm): Pad 1 [SDA] of TP2 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(4.2000 mm, 4.2000 mm): Circle of J1 on f.silkscreen
+    @(5.0000 mm, 5.0000 mm): PTH pad 1 [+3V3] of J1
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(9.0000 mm, 11.0000 mm): Reference field of TP3
+    @(7.5400 mm, 10.0800 mm): PTH pad 6 [GND] of J1
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(9.0000 mm, 11.0000 mm): Reference field of TP3
+    @(9.0000 mm, 10.0000 mm): Pad 1 [SCL] of TP3 on F.Cu
+[silk_over_copper]: Silkscreen clipped by solder mask
+    Local override; warning
+    @(8.0000 mm, 13.5000 mm): Reference field of TP4
+    @(8.0000 mm, 12.5000 mm): Pad 1 [GND] of TP4 on F.Cu
+
+** Found 0 unconnected pads **
+
+** Found 0 Footprint errors **
+
+** Ignored checks **
+    - Footprint has no courtyard defined
+    - Track endpoint not centered on via
+    - Tuning profile track geometries
+    - Footprint doesn't match symbol's footprint filters
+    - Footprint component type doesn't match footprint pads
+
+** End of Report **

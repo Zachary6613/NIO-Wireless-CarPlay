@@ -1,0 +1,6 @@
+Reference,Quantity,Value,Package,Manufacturer Part Number,Notes
+U1,1,MFI343S00177-L,XDFN-8 2x3mm P0.5mm,MFI343S00177-L,"Provisioned genuine MFi Authentication 3.0 device"
+C1,1,100nF 16V X7R,0603,Generic,"Place adjacent to U1 pin 8 and nearest GND"
+R1 R2,2,12k 1%,0603,Generic,"I2C pull-ups to same 3V3 rail as U1; per reference design"
+J1,1,2x3 female socket 2.54mm,THT 2x3,Generic,"Bottom-entry/female HAT socket; verify selected part height"
+TP1 TP2 TP3 TP4,4,Test point 1.0mm,SMD,Generic,"3V3 SDA SCL GND"

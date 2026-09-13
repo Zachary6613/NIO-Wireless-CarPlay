@@ -1,0 +1,146 @@
+name: livi-link assets
+run-name: 'livi-link-assets → ${{ github.ref_name }}'
+
+# Cross-builds the dongle stack (armv7, static) and commits it to assets/livi-link.
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build dongle stack (armv7)
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ github.ref }}
+
+      - name: Install cross toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          # Not used here, and its index and packages drift apart often enough to break a run.
+          sudo rm -f /etc/apt/sources.list.d/*google*
+          sudo sed -i '\#dl\.google\.com#d' /etc/apt/sources.list
+          grep -rl dl.google.com /etc/apt/sources.list /etc/apt/sources.list.d 2>/dev/null || true
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends gcc-arm-linux-gnueabihf libc6-dev-armhf-cross
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustup target add armv7-unknown-linux-gnueabihf
+          arm-linux-gnueabihf-gcc --version | head -1
+          rustc --version
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/livi-helperd/target
+          key: cargo-livi-link-${{ hashFiles('native/livi-helperd/**/Cargo.toml') }}
+          restore-keys: cargo-livi-link-
+
+      - name: Build assets
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod +x scripts/livi-link/build-armv7.sh
+          scripts/livi-link/build-armv7.sh assets/livi-link
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: livi-link-armv7
+          path: assets/livi-link
+          retention-days: 7
+
+      - name: Commit and push assets
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+
+          # assets/*.gz is ignored for humans; CI is the one place they may be added.
+          git add -f -A assets/livi-link
+          if git diff --cached --quiet -- assets/livi-link; then
+            echo "No asset changes to commit"
+            exit 0
+          fi
+
+          # Name the binaries whose gzip actually changed, from the manifest.
+          detail=""
+          old="$(git show HEAD:assets/livi-link/MANIFEST.md5 2>/dev/null || true)"
+          if [[ -n "$old" ]]; then
+            detail="$(comm -13 <(printf '%s\n' "$old" | sort) <(sort assets/livi-link/MANIFEST.md5) \
+              | awk '{ sub(/\.gz$/, "", $2); print $2 }' | paste -sd', ' -)"
+          fi
+
+          if [[ -n "$detail" ]]; then
+            git commit -m "chore(livi-link): update dongle stack (${detail})"
+          else
+            git commit -m "chore(livi-link): update dongle stack"
+          fi
+          git push
+
+  tool:
+    name: Build the provisioning tool (${{ matrix.name }})
+    needs: build
+    runs-on: ${{ matrix.runner }}
+
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: macos-arm64
+            runner: macos-latest
+          - name: linux-x64
+            runner: ubuntu-latest
+          - name: linux-arm64
+            runner: ubuntu-24.04-arm
+
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Take the dongle binary from this run
+        uses: actions/download-artifact@v8
+        with:
+          name: livi-link-armv7
+          path: assets/livi-link
+
+      - name: Setup Rust
+        shell: bash
+        run: |
+          set -euo pipefail
+          rustup toolchain install stable --profile minimal
+          rustup default stable
+          rustc --version
+
+      - name: Cache cargo
+        uses: actions/cache@v5
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            native/livi-helperd/target
+          key: cargo-livi-link-tool-${{ matrix.name }}-${{ hashFiles('native/livi-helperd/**/Cargo.toml') }}
+          restore-keys: cargo-livi-link-tool-${{ matrix.name }}-
+
+      - name: Build
+        working-directory: native/livi-helperd
+        run: |
+          LIVI_VERSION="$(node -p "require('../../package.json').version")" \
+            cargo build --release -p livi-link-provision-cli
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v6
+        with:
+          name: livi-link-provision-${{ matrix.name }}
+          path: native/livi-helperd/target/release/livi-link-provision
+          retention-days: 30

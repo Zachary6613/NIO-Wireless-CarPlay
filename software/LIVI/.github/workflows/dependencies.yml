@@ -1,0 +1,130 @@
+name: dependencies
+run-name: 'dependencies → ${{ inputs.include_major && ''major'' || ''minor+patch'' }} on ${{ inputs.branch }}'
+
+on:
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'Branch to update'
+        required: true
+        default: 'dev'
+        type: string
+      include_major:
+        description: 'Include major updates'
+        required: true
+        default: false
+        type: boolean
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    name: Update dependencies on ${{ inputs.branch }}
+    runs-on: ubuntu-latest
+
+    env:
+      TARGET_BRANCH: ${{ inputs.branch }}
+      HUSKY: 0
+
+    steps:
+      - name: Checkout target branch
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+          ref: ${{ env.TARGET_BRANCH }}
+
+      - name: Setup Node + pnpm
+        id: pnpm
+        uses: ./.github/actions/pnpm
+        with:
+          node-version: '24'
+          pnpm-major: '12'
+          pnpm-store-dir: '.pnpm-store'
+
+      - name: Collect available updates report
+        id: report
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          REPORT="$(npx --yes npm-check-updates --format group || true)"
+
+          {
+            echo 'report<<EOF'
+            echo "$REPORT"
+            echo 'EOF'
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Update minor and patch only
+        if: ${{ inputs.include_major == false }}
+        run: npx --yes npm-check-updates -u --target minor
+
+      - name: Update including majors
+        if: ${{ inputs.include_major == true }}
+        run: npx --yes npm-check-updates -u
+
+      - name: Check whether package.json changed
+        id: manifest_changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- package.json; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Refresh lockfile
+        if: steps.manifest_changes.outputs.changed == 'true'
+        run: pnpm install --lockfile-only --ignore-scripts
+
+      - name: Check for dependency file changes
+        id: changes
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if git diff --quiet -- package.json pnpm-lock.yaml; then
+            echo "changed=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "changed=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Commit and push directly to target branch
+        if: steps.changes.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          REPORT: ${{ steps.report.outputs.report }}
+          INCLUDE_MAJOR: ${{ inputs.include_major }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+
+          if [[ "${INCLUDE_MAJOR}" == "true" ]]; then
+            TITLE="chore(deps): update dependencies (major)"
+          else
+            TITLE="chore(deps): update dependencies"
+          fi
+
+          BODY_FILE="$(mktemp)"
+          {
+            echo "${TITLE}"
+            echo
+            echo "Include major updates: \`${INCLUDE_MAJOR}\`"
+            echo
+            echo 'Available updates before applying changes:'
+            echo
+            echo '```text'
+            printf '%s\n' "${REPORT}"
+            echo '```'
+          } > "${BODY_FILE}"
+
+          git add package.json pnpm-lock.yaml
+          git commit -F "${BODY_FILE}"
+          git pull --rebase origin "${TARGET_BRANCH}"
+          git push origin "${TARGET_BRANCH}"

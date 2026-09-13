@@ -1,0 +1,12 @@
+work/
+*.log
+*.bak
+*.lck
+*.kicad_prl
+*.kicad_sch-bak
+*.kicad_pcb-bak
+.DS_Store
+Thumbs.db
+node_modules/
+dist/
+out/
