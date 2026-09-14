@@ -19,6 +19,7 @@
 - `docs/architecture.md`：系统方案和风险边界
 - `docs/bringup.md`：从空白树莓派到首轮联调
 - `docs/development.md`：LIVI 本地修改、构建和同步上游
+- `software/README.md`：LIVI 源码结构、已有功能、依赖和完整开发计划
 - `hardware/README.md`：MFi 小板设计输入和连接表
 - `hardware/preflight-checklist.md`：投板/上电检查清单
 - `hardware/MFI-Pi4-MiniHat/panel-2x2/`：嘉立创 2×2 拼板生产包
