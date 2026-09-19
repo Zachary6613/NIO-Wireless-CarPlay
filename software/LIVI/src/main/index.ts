@@ -49,6 +49,7 @@ import {
   setMacBackdrop,
   setStreamGamma
 } from './services/video/GstVideo'
+import { webProjectionBridge } from './services/video/WebProjectionBridge'
 import { createMainWindow, getMainWindow } from './window/createWindow'
 import { setupSecondaryWindows } from './window/secondaryWindows'
 
@@ -74,6 +75,7 @@ if (bootstrapCompositor()) {
 app.whenReady().then(async () => {
   if (!bootAllowed) return
   const projectionService = new ProjectionService()
+  webProjectionBridge.start((x, y, action) => projectionService.sendRemoteTouch(x, y, action))
   registerUsbIpc()
   const telemetryStore = new TelemetryStore()
   const telemetrySocket = new TelemetrySocket(telemetryStore, 4000)

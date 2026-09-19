@@ -6,6 +6,7 @@ import path from 'path'
 import { gstEnv, resolveBinary, resolveGStreamerRoot } from '../audio/gstreamer'
 import { gstHost, type MicStreamOpts, probeCodecsViaHost } from './gstHost'
 import { sysfsPanelGeometry } from './panelEdid'
+import { webProjectionBridge } from './WebProjectionBridge'
 
 export type GstVideoCodec = 'h264' | 'h265' | 'vp9' | 'av1'
 
@@ -512,6 +513,8 @@ export class GstVideo {
 
   prepare(codec: GstVideoCodec, codecData?: Buffer): void {
     if (codecData) this.codecData = codecData
+    if (this.role === 'main') webProjectionBridge.configure(codec, this.codecData)
+    if (webProjectionBridge.enabled && this.role === 'main') return
     this.ensure(codec)
   }
 
@@ -568,6 +571,8 @@ export class GstVideo {
   }
 
   push(codec: GstVideoCodec, nal: Buffer): void {
+    if (this.role === 'main') webProjectionBridge.push(codec, nal)
+    if (webProjectionBridge.enabled && this.role === 'main') return
     if (useHostProcess) {
       this.ensure(codec)
       if (this.started) {
@@ -589,6 +594,7 @@ export class GstVideo {
   setCodecData(codecData: Buffer): void {
     if (this.codecData && this.codecData.equals(codecData)) return
     this.codecData = codecData
+    if (this.role === 'main' && this.codec) webProjectionBridge.configure(this.codec, codecData)
     if (this.started || this.claiming) this.dispose()
   }
 

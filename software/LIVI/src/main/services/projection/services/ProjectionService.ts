@@ -6,6 +6,7 @@ import { getSecondaryWindow, secondaryWindowEvents } from '@main/window/secondar
 import type { Config, DevListEntry } from '@shared/types'
 import { PhoneWorkMode } from '@shared/types'
 import { isInputCommand } from '@shared/types/InputCommand'
+import type { TouchAction } from '@shared/types/ProjectionEnums'
 import type { NavLocale } from '@shared/utils'
 import { clusterTargetScreens, isClusterDisplayed } from '@shared/utils'
 import { app, WebContents, webContents } from 'electron'
@@ -35,6 +36,7 @@ import { restartWifiAp } from '../driver/helper/wifiApUnit'
 import type { IPhoneDriver } from '../driver/IPhoneDriver'
 import { ProjectionDriverManager } from '../drivers/ProjectionDriverManager'
 import { type ProjectionIpcHost, registerProjectionIpc } from '../ipc'
+import { SendTouch } from '../messages/sendable'
 import {
   AudioData,
   Command,
@@ -111,7 +113,9 @@ export class ProjectionService {
   private readonly codecCaps = new CodecCapabilityService((codec, supported) => {
     if (codec === 'hevc') {
       this.drivers.setAaHevcSupported(supported)
-      this.drivers.setCpHevcSupported(supported)
+      // The LAN browser bridge uses fragmented MP4 and intentionally negotiates
+      // H.264, which has consistent browser support across desktop and mobile.
+      this.drivers.setCpHevcSupported(process.env.LIVI_WEB_BRIDGE === '1' ? false : supported)
     } else if (codec === 'vp9') {
       this.drivers.setAaVp9Supported(supported)
       this.drivers.setCpVp9Supported(supported)
@@ -989,7 +993,7 @@ export class ProjectionService {
       onCpCreated: (s) => this.attachCodecCapture(s as CpSession),
       onCpReleased: () => {},
       getCpConfigSeed: () => ({
-        hevcSupported: this.codecCaps.hevc,
+        hevcSupported: process.env.LIVI_WEB_BRIDGE === '1' ? false : this.codecCaps.hevc,
         vp9Supported: this.codecCaps.vp9,
         av1Supported: this.codecCaps.av1,
         initialNightMode: deriveInitialNightMode(this.config.appearanceMode)
@@ -1136,6 +1140,10 @@ export class ProjectionService {
       setAudioStreamVolume: (s, v) => this.audio.setStreamVolume(s, v),
       setAudioVisualizerEnabled: (e, id) => this.audio.setVisualizerEnabled(e, id)
     }
+  }
+
+  public sendRemoteTouch(x: number, y: number, action: number): void {
+    void this.driver?.send(new SendTouch(x, y, action as TouchAction))
   }
 
   private async reloadConfigFromDisk(): Promise<void> {

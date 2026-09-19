@@ -28,6 +28,7 @@ import {
   VIDEO_PLANE_CLUSTER_RECV,
   VIDEO_PLANE_MAIN
 } from '@main/services/video/gstHost'
+import { webProjectionBridge } from '@main/services/video/WebProjectionBridge'
 import { AudioCommand } from '@shared/types/ProjectionEnums'
 import { CP_BT_SOCK_PATH } from '../CpHelperSock'
 import { handleAuthSetup } from './authSetup'
@@ -1079,7 +1080,7 @@ export class CpStack extends EventEmitter {
       'DataStream-Output-Encryption-Key',
       32
     )
-    if (process.platform === 'linux') {
+    if (process.platform === 'linux' && process.env.LIVI_WEB_BRIDGE !== '1') {
       // The config atom is parsed in gst-host; the codec reported here is the advertised one.
       const nativeCodec = this.cfg.hevc ? 'h265' : 'h264'
       if (isCluster) {
@@ -1118,7 +1119,7 @@ export class CpStack extends EventEmitter {
     }
     // Without a host process the addon binds the port and feeds the plane directly; the config
     // comes back through onNativeVideoConfig.
-    {
+    if (process.env.LIVI_WEB_BRIDGE !== '1') {
       const planeId = isCluster ? VIDEO_PLANE_CLUSTER_RECV : VIDEO_PLANE_MAIN
       const inProcPort = openScreenReceiver(planeId, key)
       if (inProcPort > 0) {
@@ -1169,7 +1170,10 @@ export class CpStack extends EventEmitter {
       }
     })
     // config carries the codec_data record; frames carry the decrypted length-prefixed NALs.
-    screen.on('config', (codecData: Buffer) => this.emit(configEvent, codecData))
+    screen.on('config', (codecData: Buffer) => {
+      if (!isCluster) webProjectionBridge.configure(codec, codecData)
+      this.emit(configEvent, codecData)
+    })
     screen.on('frame', (raw: Buffer): void => {
       if (firstFrame) {
         firstFrame = false
@@ -1178,6 +1182,7 @@ export class CpStack extends EventEmitter {
           if (this._clusterWantActive) this._activateClusterStream(session)
         }
       }
+      if (!isCluster) webProjectionBridge.push(codec, raw)
       this.emit(frameEvent, raw)
     })
     const port = await screen.listen()
