@@ -28,13 +28,15 @@ chmod +x scripts/check-mfi.sh
 
 ## 3. 安装 LIVI
 
-本仓库已经保存 LIVI 源码。全新树莓派仍建议先按上游安装脚本准备系统依赖：
+本仓库已经保存 LIVI 源码。全新树莓派先使用仓库自带脚本准备系统依赖（蓝牙、hostapd、
+dnsmasq、avahi 等），它不会下载预编译 AppImage，也不会改动 I2C 配置：
 
 ```bash
-curl -fL -o install.sh https://raw.githubusercontent.com/f-io/LIVI/main/scripts/install/install.sh
-chmod +x install.sh
-./install.sh
+./scripts/setup-system.sh
 ```
+
+不要运行 `software/LIVI/scripts/install/install.sh`，那是上游的预编译 AppImage 安装器，
+其默认 MFi 配置（软件 I2C bus 2 / GPIO 21）与本项目小板（硬件 I2C-1 / 常供电）冲突。
 
 需要修改或从源码构建时，参见 `docs/development.md` 和 `software/LIVI/README.md`。
 
