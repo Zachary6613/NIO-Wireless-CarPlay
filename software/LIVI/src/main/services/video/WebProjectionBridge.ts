@@ -1,6 +1,8 @@
-import { spawn, type ChildProcessWithoutNullStreams } from 'node:child_process'
+import { type ChildProcessWithoutNullStreams, spawn } from 'node:child_process'
+import { readFileSync } from 'node:fs'
 import http from 'node:http'
-import { Server } from 'socket.io'
+import https from 'node:https'
+import { Server, type Socket } from 'socket.io'
 
 type Codec = 'h264' | 'h265' | 'vp9' | 'av1'
 type TouchHandler = (x: number, y: number, action: number) => void
@@ -13,68 +15,91 @@ const PAGE = `<!doctype html>
   <title>LIVI CarPlay</title>
   <style>
     html,body{width:100%;height:100%;margin:0;background:#000;overflow:hidden;touch-action:none}
-    video{width:100%;height:100%;display:block;object-fit:contain;background:#000;touch-action:none}
+    canvas{width:100%;height:100%;display:block;object-fit:contain;background:#000;touch-action:none}
     #state{position:fixed;left:12px;top:10px;padding:6px 10px;border-radius:6px;color:#fff;background:#0009;font:14px system-ui;pointer-events:none}
     button{position:fixed;top:10px;z-index:2;padding:8px 12px}
     #full{right:12px}#sound{right:82px}
   </style>
 </head>
 <body>
-  <video id="screen" autoplay muted playsinline></video>
+  <canvas id="screen"></canvas>
   <div id="state">正在等待 CarPlay 视频…</div>
   <button id="sound">启用声音</button>
   <button id="full">全屏</button>
+  <script src="/bridge-client.js"></script>
   <script>
-    const video = document.querySelector('#screen')
+    const screen = document.querySelector('#screen')
+    const context = screen.getContext('2d', { alpha: false, desynchronized: true })
     const state = document.querySelector('#state')
-    let aborter = null
-    const reconnect = async () => {
-      aborter?.abort()
-      aborter = new AbortController()
-      state.style.display = 'block'
-      state.textContent = '正在连接视频…'
-      const mediaSource = new MediaSource()
-      video.src = URL.createObjectURL(mediaSource)
-      await new Promise(resolve => mediaSource.addEventListener('sourceopen', resolve, { once: true }))
-      let sourceBuffer
-      try {
-        sourceBuffer = mediaSource.addSourceBuffer('video/mp4; codecs="__AVC_CODEC__"')
-      } catch (e) {
-        state.textContent = '浏览器不支持此 H.264 格式：' + e.message
-        return
-      }
-      try {
-        const response = await fetch('/stream.mp4?t=' + Date.now(), { signal: aborter.signal, cache: 'no-store' })
-        if (!response.ok || !response.body) throw new Error('HTTP ' + response.status)
-        const reader = response.body.getReader()
-        while (true) {
-          const { value, done } = await reader.read()
-          if (done) break
-          await new Promise((resolve, reject) => {
-            const ok = () => { cleanup(); resolve() }
-            const bad = () => { cleanup(); reject(sourceBuffer.error || new Error('append failed')) }
-            const cleanup = () => { sourceBuffer.removeEventListener('updateend', ok); sourceBuffer.removeEventListener('error', bad) }
-            sourceBuffer.addEventListener('updateend', ok)
-            sourceBuffer.addEventListener('error', bad)
-            sourceBuffer.appendBuffer(value)
-          })
-          video.play().catch(() => {})
-        }
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          state.textContent = '视频流中断，正在重连…'
-          setTimeout(reconnect, 1000)
-        }
-      }
+    let decoder = null
+    let decoderCodec = ''
+    let waitingForKey = true
+    let timestamp = 0
+    if (!window.VideoDecoder) {
+      state.textContent = 'WebCodecs 不可用：请使用支持的浏览器，并为此局域网地址启用安全上下文（HTTPS）'
     }
-    video.addEventListener('playing', () => { state.style.display = 'none' })
-    video.addEventListener('error', () => { state.textContent = '视频解码失败，正在重连…'; setTimeout(reconnect, 1000) })
-    reconnect()
+    const socket = window.VideoDecoder ? io({ transports: ['websocket'], reconnection: true }) : null
+    function resetDecoder(codec) {
+      if (decoder) { try { decoder.close() } catch {} }
+      decoderCodec = codec
+      waitingForKey = true
+      timestamp = 0
+      decoder = new VideoDecoder({
+        output(frame) {
+          if (screen.width !== frame.displayWidth || screen.height !== frame.displayHeight) {
+            screen.width = frame.displayWidth
+            screen.height = frame.displayHeight
+          }
+          context.drawImage(frame, 0, 0, screen.width, screen.height)
+          frame.close()
+          state.style.display = 'none'
+        },
+        error(error) {
+          state.style.display = 'block'
+          state.textContent = '视频解码失败：' + error.message
+          waitingForKey = true
+        }
+      })
+      decoder.configure({ codec, optimizeForLatency: true, hardwareAcceleration: 'prefer-hardware' })
+    }
+    socket?.on('connect', () => { state.style.display = 'block'; state.textContent = '已连接，等待关键帧…' })
+    socket?.on('disconnect', () => {
+      if (decoder) { try { decoder.close() } catch {} }
+      decoder = null
+      waitingForKey = true
+      state.style.display = 'block'
+      state.textContent = '视频连接中断，正在重连…'
+    })
+    socket?.on('video-config', ({ codec }) => {
+      try {
+        resetDecoder(codec)
+        state.textContent = '等待关键帧…'
+      } catch (error) { state.textContent = 'WebCodecs 初始化失败：' + error.message }
+    })
+    socket?.on('video-frame', ({ key, data }) => {
+      if (!decoder || decoder.state !== 'configured') return
+      if (waitingForKey && !key) return
+      // A dropped P-frame invalidates the GOP: resume only on the next IDR.
+      if (decoder.decodeQueueSize > 3) {
+        resetDecoder(decoderCodec)
+        state.style.display = 'block'
+        state.textContent = '正在追赶实时画面…'
+        if (!key) return
+      }
+      try {
+        decoder.decode(new EncodedVideoChunk({ type: key ? 'key' : 'delta', timestamp: timestamp++, data }))
+        waitingForKey = false
+      } catch {
+        waitingForKey = true
+        state.style.display = 'block'
+        state.textContent = '视频帧错误，等待关键帧…'
+      }
+    })
 
     function point(e) {
-      const r = video.getBoundingClientRect()
-      const vw = video.videoWidth || 16
-      const vh = video.videoHeight || 9
+      const r = screen.getBoundingClientRect()
+      const vw = screen.width || 16
+      const vh = screen.height || 9
       const scale = Math.min(r.width / vw, r.height / vh)
       const w = vw * scale, h = vh * scale
       const ox = r.left + (r.width - w) / 2, oy = r.top + (r.height - h) / 2
@@ -85,19 +110,14 @@ const PAGE = `<!doctype html>
     }
     function send(e, action) {
       const p = point(e)
-      fetch('/touch', {
-        method: 'POST',
-        headers: { 'content-type': 'application/json' },
-        body: JSON.stringify({ x: p.x, y: p.y, action }),
-        keepalive: true
-      }).catch(() => {})
+      socket?.emit('touch', { x: p.x, y: p.y, action })
     }
-    video.addEventListener('pointerdown', e => {
-      video.setPointerCapture(e.pointerId); send(e, 14); e.preventDefault()
+    screen.addEventListener('pointerdown', e => {
+      screen.setPointerCapture(e.pointerId); send(e, 14); e.preventDefault()
     })
     let queued = null, movePending = false
-    video.addEventListener('pointermove', e => {
-      if (!video.hasPointerCapture(e.pointerId)) return
+    screen.addEventListener('pointermove', e => {
+      if (!screen.hasPointerCapture(e.pointerId)) return
       queued = e
       if (movePending) return
       movePending = true
@@ -106,8 +126,8 @@ const PAGE = `<!doctype html>
       })
       e.preventDefault()
     })
-    for (const name of ['pointerup','pointercancel']) video.addEventListener(name, e => {
-      send(e, 16); try { video.releasePointerCapture(e.pointerId) } catch {}; e.preventDefault()
+    for (const name of ['pointerup','pointercancel']) screen.addEventListener(name, e => {
+      send(e, 16); try { screen.releasePointerCapture(e.pointerId) } catch {}; e.preventDefault()
     })
     document.querySelector('#full').onclick = () => document.documentElement.requestFullscreen?.()
     const soundButton = document.querySelector('#sound')
@@ -160,8 +180,6 @@ const PAGE = `<!doctype html>
 class WebProjectionBridge {
   private server: http.Server | null = null
   private io: Server | null = null
-  private response: http.ServerResponse | null = null
-  private pipeline: ChildProcessWithoutNullStreams | null = null
   private audioProcess: ChildProcessWithoutNullStreams | null = null
   private audioResponse: http.ServerResponse | null = null
   private codec: Codec = 'h264'
@@ -181,9 +199,22 @@ class WebProjectionBridge {
     if (!this.enabled || this.server) return
     this.touchHandler = touchHandler
     const port = Number.parseInt(process.env.LIVI_WEB_PORT ?? '8080', 10) || 8080
-    this.server = http.createServer((req, res) => this.handleRequest(req, res))
+    const certPath = process.env.LIVI_WEB_TLS_CERT
+    const keyPath = process.env.LIVI_WEB_TLS_KEY
+    const tls = certPath && keyPath
+    this.server = tls
+      ? https.createServer(
+          { cert: readFileSync(certPath), key: readFileSync(keyPath) },
+          (req, res) => this.handleRequest(req, res)
+        )
+      : http.createServer((req, res) => this.handleRequest(req, res))
     this.io = new Server(this.server, { cors: { origin: '*' } })
     this.io.on('connection', (socket) => {
+      socket.data.needsKey = true
+      socket.emit('video-config', { codec: this.avcCodecString() })
+      if (this.gopBytes <= 256 * 1024) {
+        for (const frame of this.gop) this.sendVideoFrame(socket, frame, this.hasIdr(frame))
+      }
       socket.on('touch', (value: unknown) => {
         const v = value as { x?: unknown; y?: unknown; action?: unknown }
         const x = Number(v?.x)
@@ -195,7 +226,7 @@ class WebProjectionBridge {
     })
     this.server.on('error', (e) => console.error('[WebBridge] server:', e.message))
     this.server.listen(port, '0.0.0.0', () => {
-      console.log(`[WebBridge] open http://0.0.0.0:${port}`)
+      console.log(`[WebBridge] open ${tls ? 'https' : 'http'}://0.0.0.0:${port}`)
     })
   }
 
@@ -205,7 +236,12 @@ class WebProjectionBridge {
     if (!codecData?.length) return
     this.codecData = Buffer.from(codecData)
     if (codec === 'h264') this.parseAvcC(this.codecData)
-    console.log(`[WebBridge] video config codec=${codec} bytes=${codecData.length} parameterSets=${this.parameterSets.length}`)
+    this.gop = []
+    this.gopBytes = 0
+    this.io?.emit('video-config', { codec: this.avcCodecString() })
+    console.log(
+      `[WebBridge] video config codec=${codec} bytes=${codecData.length} parameterSets=${this.parameterSets.length}`
+    )
   }
 
   push(codec: Codec, sample: Buffer): void {
@@ -214,27 +250,55 @@ class WebProjectionBridge {
     const annexB = this.toAnnexB(sample)
     if (annexB.length === 0) return
     this.frameCount += 1
-    if (this.frameCount === 1) console.log(`[WebBridge] first video frame bytes=${sample.length} annexB=${annexB.length}`)
-    if (this.hasIdr(annexB)) {
+    if (this.frameCount === 1)
+      console.log(`[WebBridge] first video frame bytes=${sample.length} annexB=${annexB.length}`)
+    const key = this.hasIdr(annexB)
+    const frame =
+      key && this.parameterSets.length ? Buffer.concat([...this.parameterSets, annexB]) : annexB
+    if (key) {
       this.gop = []
       this.gopBytes = 0
     }
-    if (this.gop.length || this.hasIdr(annexB)) {
-      this.gop.push(annexB)
-      this.gopBytes += annexB.length
+    if (this.gop.length || key) {
+      this.gop.push(frame)
+      this.gopBytes += frame.length
       if (this.gopBytes > 8 * 1024 * 1024) {
         this.gop = []
         this.gopBytes = 0
       }
     }
-    if (!this.pipeline?.stdin.writable) return
-    try {
-      this.pipeline.stdin.write(annexB)
-    } catch {}
+    for (const socket of this.io?.sockets.sockets.values() ?? []) {
+      this.sendVideoFrame(socket, frame, key)
+    }
+  }
+
+  private sendVideoFrame(socket: Socket, frame: Buffer, key: boolean): void {
+    const transport = socket.conn.transport as unknown as { socket?: { bufferedAmount?: number } }
+    if ((transport.socket?.bufferedAmount ?? 0) > 512 * 1024) {
+      socket.data.needsKey = true
+      return
+    }
+    if (socket.data.needsKey && !key) return
+    socket.emit('video-frame', { key, data: frame })
+    socket.data.needsKey = false
   }
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const url = new URL(req.url ?? '/', 'http://localhost')
+    if (url.pathname === '/bridge-client.js') {
+      try {
+        const script = readFileSync('node_modules/socket.io/client-dist/socket.io.min.js')
+        res.writeHead(200, {
+          'content-type': 'text/javascript; charset=utf-8',
+          'cache-control': 'no-store'
+        })
+        res.end(script)
+      } catch (error) {
+        console.error('[WebBridge] client script:', error)
+        res.writeHead(500).end()
+      }
+      return
+    }
     if (url.pathname === '/touch' && req.method === 'POST') {
       const chunks: Buffer[] = []
       let size = 0
@@ -245,11 +309,16 @@ class WebProjectionBridge {
       req.on('end', () => {
         try {
           if (size > 4096) throw new Error('body too large')
-          const v = JSON.parse(Buffer.concat(chunks).toString()) as { x?: unknown; y?: unknown; action?: unknown }
+          const v = JSON.parse(Buffer.concat(chunks).toString()) as {
+            x?: unknown
+            y?: unknown
+            action?: unknown
+          }
           const x = Number(v.x)
           const y = Number(v.y)
           const action = Number(v.action)
-          if (!Number.isFinite(x) || !Number.isFinite(y) || ![14, 15, 16].includes(action)) throw new Error('invalid touch')
+          if (!Number.isFinite(x) || !Number.isFinite(y) || ![14, 15, 16].includes(action))
+            throw new Error('invalid touch')
           this.touchHandler?.(Math.max(0, Math.min(1, x)), Math.max(0, Math.min(1, y)), action)
           res.writeHead(204).end()
         } catch {
@@ -267,12 +336,16 @@ class WebProjectionBridge {
         connection: 'close',
         'access-control-allow-origin': '*'
       })
-      const child = spawn('/usr/bin/parec', [
-        '--device=@DEFAULT_MONITOR@', '--format=s16le', '--rate=48000', '--channels=2'
-      ], { env: process.env, stdio: ['pipe', 'pipe', 'pipe'] })
+      const child = spawn(
+        '/usr/bin/parec',
+        ['--device=@DEFAULT_MONITOR@', '--format=s16le', '--rate=48000', '--channels=2'],
+        { env: process.env, stdio: ['pipe', 'pipe', 'pipe'] }
+      )
       this.audioProcess = child
       child.stdout.on('data', (chunk: Buffer) => this.audioResponse?.write(chunk))
-      child.stderr.on('data', (chunk: Buffer) => console.warn(`[WebBridge:audio] ${chunk.toString().trim()}`))
+      child.stderr.on('data', (chunk: Buffer) =>
+        console.warn(`[WebBridge:audio] ${chunk.toString().trim()}`)
+      )
       child.on('exit', () => {
         if (this.audioProcess === child) this.audioProcess = null
       })
@@ -282,73 +355,21 @@ class WebProjectionBridge {
       return
     }
     if (url.pathname === '/') {
-      res.writeHead(200, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' })
-      res.end(PAGE.replace('__AVC_CODEC__', this.avcCodecString()))
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store'
+      })
+      res.end(PAGE)
       return
     }
     if (url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'application/json', 'cache-control': 'no-store' })
-      res.end(JSON.stringify({ ok: true, codec: this.codec, streaming: Boolean(this.pipeline) }))
+      res.end(
+        JSON.stringify({ ok: true, codec: this.codec, viewers: this.io?.engine.clientsCount ?? 0 })
+      )
       return
     }
-    if (url.pathname !== '/stream.mp4') {
-      res.writeHead(404).end()
-      return
-    }
-    if (this.codec !== 'h264') {
-      res.writeHead(409, { 'content-type': 'text/plain; charset=utf-8' })
-      res.end('Browser bridge requires an H.264 CarPlay session. Reconnect the phone.')
-      return
-    }
-    this.stopPipeline()
-    this.response = res
-    res.writeHead(200, {
-      'content-type': 'video/mp4',
-      'cache-control': 'no-store, no-cache, must-revalidate',
-      connection: 'close',
-      'access-control-allow-origin': '*'
-    })
-    res.on('close', () => {
-      if (this.response === res) this.stopPipeline()
-    })
-    this.startPipeline()
-  }
-
-  private startPipeline(): void {
-      const binary = '/usr/bin/ffmpeg'
-      if (!this.response) {
-        return
-      }
-    const args = [
-      '-loglevel', 'warning', '-fflags', '+genpts', '-r', '30',
-      '-f', 'h264', '-i', 'pipe:0', '-an', '-c:v', 'copy',
-      '-movflags', 'frag_keyframe+empty_moov+default_base_moof',
-      '-frag_duration', '100000', '-f', 'mp4', 'pipe:1'
-    ]
-    // ffmpeg supplies monotonically increasing timestamps for AirPlay's raw
-    // access units and copies H.264 into fragmented MP4 without re-encoding.
-    const child = spawn(binary, args, { env: process.env, stdio: ['pipe', 'pipe', 'pipe'] })
-    this.pipeline = child
-    child.stdout.on('data', (chunk: Buffer) => this.response?.write(chunk))
-    child.stderr.on('data', (chunk: Buffer) => console.warn(`[WebBridge:gstreamer] ${chunk.toString().trim()}`))
-    child.on('exit', (code) => {
-      if (this.pipeline === child) this.pipeline = null
-      console.log(`[WebBridge] muxer exited (${code ?? 'signal'})`)
-    })
-    if (this.parameterSets.length) child.stdin.write(Buffer.concat(this.parameterSets))
-    for (const frame of this.gop) child.stdin.write(frame)
-  }
-
-  private stopPipeline(): void {
-    const child = this.pipeline
-    this.pipeline = null
-    if (child) {
-      child.stdin.end()
-      child.kill('SIGTERM')
-    }
-    const res = this.response
-    this.response = null
-    if (res && !res.writableEnded) res.end()
+    res.writeHead(404).end()
   }
 
   private stopAudio(): void {
@@ -383,7 +404,8 @@ class WebProjectionBridge {
   }
 
   private avcCodecString(): string {
-    if (!this.codecData || this.codecData.length < 4 || this.codecData[0] !== 1) return 'avc1.640028'
+    if (!this.codecData || this.codecData.length < 4 || this.codecData[0] !== 1)
+      return 'avc1.640028'
     return `avc1.${this.codecData.subarray(1, 4).toString('hex')}`
   }
 
@@ -406,7 +428,12 @@ class WebProjectionBridge {
       offset += size
     }
     if (valid && offset === sample.length && out.length) return Buffer.concat(out)
-    if (sample.length >= 4 && sample[0] === 0 && sample[1] === 0 && (sample[2] === 1 || (sample[2] === 0 && sample[3] === 1))) {
+    if (
+      sample.length >= 4 &&
+      sample[0] === 0 &&
+      sample[1] === 0 &&
+      (sample[2] === 1 || (sample[2] === 0 && sample[3] === 1))
+    ) {
       return sample
     }
     return Buffer.alloc(0)
@@ -416,7 +443,14 @@ class WebProjectionBridge {
     for (let i = 0; i + 4 < data.length; i++) {
       let nal = -1
       if (data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 1) nal = i + 3
-      else if (i + 5 < data.length && data[i] === 0 && data[i + 1] === 0 && data[i + 2] === 0 && data[i + 3] === 1) nal = i + 4
+      else if (
+        i + 5 < data.length &&
+        data[i] === 0 &&
+        data[i + 1] === 0 &&
+        data[i + 2] === 0 &&
+        data[i + 3] === 1
+      )
+        nal = i + 4
       if (nal >= 0 && (data[nal] & 0x1f) === 5) return true
     }
     return false
