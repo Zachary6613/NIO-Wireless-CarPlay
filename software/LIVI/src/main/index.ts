@@ -75,7 +75,10 @@ if (bootstrapCompositor()) {
 app.whenReady().then(async () => {
   if (!bootAllowed) return
   const projectionService = new ProjectionService()
-  webProjectionBridge.start((x, y, action) => projectionService.sendRemoteTouch(x, y, action))
+  webProjectionBridge.start(
+    (x, y, action) => projectionService.sendRemoteTouch(x, y, action),
+    () => projectionService.requestRemoteKeyframe()
+  )
   registerUsbIpc()
   const telemetryStore = new TelemetryStore()
   const telemetrySocket = new TelemetrySocket(telemetryStore, 4000)

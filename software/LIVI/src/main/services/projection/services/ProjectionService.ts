@@ -1146,6 +1146,10 @@ export class ProjectionService {
     void this.driver?.send(new SendTouch(x, y, action as TouchAction))
   }
 
+  public requestRemoteKeyframe(): void {
+    this.driver?.requestKeyframe?.()
+  }
+
   private async reloadConfigFromDisk(): Promise<void> {
     try {
       const configPath = path.join(app.getPath('userData'), 'config.json')

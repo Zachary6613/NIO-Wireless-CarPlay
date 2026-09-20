@@ -30,12 +30,14 @@ fi
 # ---- Kiosk mode ----
 export LIVI_KIOSK="${LIVI_KIOSK:-1}"
 
-# ---- Web bridge with HTTPS (auto-enabled when the certs exist) ----
-TLS_DIR="$HOME/.config/LIVI/web-bridge"
-if [ -z "${LIVI_WEB_BRIDGE:-}" ] && [ -f "$TLS_DIR/cert.pem" ] && [ -f "$TLS_DIR/key.pem" ]; then
-  export LIVI_WEB_BRIDGE=1
-  export LIVI_WEB_TLS_CERT="$TLS_DIR/cert.pem"
-  export LIVI_WEB_TLS_KEY="$TLS_DIR/key.pem"
+# ---- LAN web bridge: use the existing certificate for HTTPS when available ----
+export LIVI_WEB_BRIDGE="${LIVI_WEB_BRIDGE:-1}"
+WEB_CERT="$HOME/.config/LIVI/web-bridge/cert.pem"
+WEB_KEY="$HOME/.config/LIVI/web-bridge/key.pem"
+if [ -z "${LIVI_WEB_TLS_CERT:-}" ] && [ -z "${LIVI_WEB_TLS_KEY:-}" ] &&
+   [ -f "$WEB_CERT" ] && [ -f "$WEB_KEY" ]; then
+  export LIVI_WEB_TLS_CERT="$WEB_CERT"
+  export LIVI_WEB_TLS_KEY="$WEB_KEY"
 fi
 
 exec pnpm run dev

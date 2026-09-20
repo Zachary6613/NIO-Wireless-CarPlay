@@ -20,7 +20,7 @@ Raspberry Pi 4/5  +  LIVI
 ```
 
 - CarPlay 协议与 MFi 认证由 Rust 编写的 **livi-helperd** 守护进程完成
-- 画面经局域网以低延迟方式推送，浏览器使用 **WebCodecs** 硬解 H.264 并绘制到 canvas
+- 画面经局域网推送；HTTP 浏览器使用 MSE 播放 H.264，配置 HTTPS 的浏览器使用 **WebCodecs** 解码并绘制到 canvas
 - GStreamer 运行时已随仓库一起提供（linux-x64 / linux-arm64 / macos-arm64），无需自行安装
 
 ## 硬件需求
@@ -130,7 +130,7 @@ pnpm run build:helperd
 
 ### 6.（可选）生成网页桥接的 HTTPS 证书
 
-部分浏览器只在安全上下文（HTTPS）下允许 WebCodecs。如需 HTTPS，生成自签名证书：
+WebCodecs 需要安全上下文（HTTPS）。启动脚本检测到下列证书后会默认启用 HTTPS；无证书时才回退到 HTTP/MSE。可生成自签名证书：
 
 ```bash
 mkdir -p ~/.config/LIVI/web-bridge
@@ -143,7 +143,7 @@ openssl req -x509 -newkey rsa:2048 -nodes -days 3650 \
 
 ### 7. 启动
 
-回到项目根目录，一键启动（自动配置显示、GStreamer、helperd、kiosk，并在检测到证书时启用 HTTPS 网页桥接）：
+回到项目根目录，一键启动（自动配置显示、GStreamer、helperd、kiosk 和 HTTPS 网页桥接）：
 
 ```bash
 cd ~/NIO-Wireless-CarPlay
@@ -155,6 +155,9 @@ cd ~/NIO-Wireless-CarPlay
 ```bash
 LIVI_KIOSK=0 ./software/LIVI/run-livi-dev.sh          # 临时退出全屏 kiosk
 LIVI_WEB_PORT=9000 ./software/LIVI/run-livi-dev.sh    # 更改网页端口
+LIVI_WEB_TLS_CERT="$HOME/.config/LIVI/web-bridge/cert.pem" \
+LIVI_WEB_TLS_KEY="$HOME/.config/LIVI/web-bridge/key.pem" \
+  ./software/LIVI/run-livi-dev.sh                      # 可选：启用 HTTPS + WebCodecs
 ```
 
 ### 8. 首次配置与访问
@@ -164,7 +167,7 @@ LIVI_WEB_PORT=9000 ./software/LIVI/run-livi-dev.sh    # 更改网页端口
    - `carPlayMfiPowerGpio`：`-1`（Rev A 小板常供电）
 2. 在设置中选择蓝牙适配器、Wi-Fi 网卡并配置热点的国家/频段/信道
 3. iPhone 通过蓝牙配对后，CarPlay 会自动切换到 Wi-Fi 连接
-4. 车机浏览器打开（自签名证书会有警告，选择"高级 → 继续前往"即可）：
+4. 已配置上述证书时，车机浏览器打开（自签名证书会有警告，选择“高级 → 继续前往”）：
 
 ```text
 https://<树莓派IP>:8080
