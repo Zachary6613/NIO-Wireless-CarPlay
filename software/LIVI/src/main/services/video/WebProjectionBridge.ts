@@ -382,6 +382,8 @@ const groups={
   wireless:[
     ['wirelessCpEnabled','启用无线 CarPlay','bool'],['wirelessAaEnabled','启用无线 Android Auto','bool'],
     ['carName','车机名称','text'],['btAdapter','蓝牙适配器','text'],['wifiInterface','Wi-Fi 网卡','text'],
+    ['wifiMode','无线 CarPlay 网络模式','select',['access-point','client']],
+    ['carWifiSsid','车机 Wi-Fi 名称（client 模式）','text'],['carWifiPassword','车机 Wi-Fi 密码（client 模式）','password'],
     ['wifiDedicatedInterface','Wi-Fi 为专用网卡','bool'],['wifiType','Wi-Fi 频段','select',['5ghz','2.4ghz']],
     ['country','Wi-Fi 国家代码','text'],['wifiChannel','Wi-Fi 信道','number'],['wifiChannelWidth','信道宽度','number'],
     ['wifiPassword','热点密码','password']

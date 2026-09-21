@@ -103,6 +103,9 @@ export type Config = {
 
   // Wi-Fi + Bluetooth
   wifiPassword: string
+  wifiMode: 'access-point' | 'client'
+  carWifiSsid: string
+  carWifiPassword: string
   btAdapter: string
   wifiInterface: string
   wifiDedicatedInterface: boolean

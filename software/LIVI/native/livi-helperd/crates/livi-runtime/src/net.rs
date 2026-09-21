@@ -137,10 +137,66 @@ pub fn iface_facing(peer: &str) -> Option<String> {
     out
 }
 
+/// The BSSID of the access point this interface is associated with.
+#[cfg(target_os = "linux")]
+pub fn station_bssid(iface: &str) -> Option<String> {
+    let out = Command::new(crate::sys::tool("iw"))
+        .args(["dev", iface, "link"])
+        .output()
+        .ok()?;
+    let text = String::from_utf8_lossy(&out.stdout);
+    text.lines()
+        .map(str::trim)
+        .find_map(|line| line.strip_prefix("Connected to "))
+        .and_then(|rest| rest.split_whitespace().next())
+        .map(str::to_uppercase)
+}
+
+#[cfg(not(target_os = "linux"))]
+pub fn station_bssid(_iface: &str) -> Option<String> {
+    None
+}
+
 /// The network an interface beacons right now.
 pub fn ap_ssid_channel(iface: &str) -> (Option<String>, Option<u8>) {
-    match livi_wifi::ap_state(iface) {
-        Some(ap) => (Some(ap.ssid), u8::try_from(ap.channel).ok()),
-        None => (None, None),
+    if let Some(ap) = livi_wifi::ap_state(iface) {
+        return (Some(ap.ssid), u8::try_from(ap.channel).ok());
     }
+
+    // Infrastructure mode: the interface is a station on the vehicle AP.
+    // iw link reports the live association and frequency; the caller uses the
+    // actual channel while preserving the configured SSID byte-for-byte.
+    #[cfg(target_os = "linux")]
+    {
+        let out = Command::new(crate::sys::tool("iw"))
+            .args(["dev", iface, "link"])
+            .output()
+            .ok();
+        if let Some(out) = out {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let ssid = text
+                .lines()
+                .map(str::trim)
+                .find_map(|line| line.strip_prefix("SSID: "))
+                .map(str::to_string)
+                .filter(|value| !value.is_empty());
+            let freq = text
+                .lines()
+                .map(str::trim)
+                .find_map(|line| line.strip_prefix("freq: "))
+                .and_then(|value| value.parse::<u32>().ok());
+            let channel = freq.and_then(|mhz| match mhz {
+                2484 => Some(14),
+                2412..=2472 => u8::try_from((mhz - 2407) / 5).ok(),
+                5005..=5895 => u8::try_from((mhz - 5000) / 5).ok(),
+                5955..=7115 => u8::try_from((mhz - 5950) / 5).ok(),
+                _ => None,
+            });
+            if ssid.is_some() {
+                return (ssid, channel);
+            }
+        }
+    }
+
+    (None, None)
 }

@@ -113,6 +113,9 @@ app.whenReady().then(async () => {
   const linkKeys: (keyof Config)[] = [
     'wifiInterface',
     'wifiDedicatedInterface',
+    'wifiMode',
+    'carWifiSsid',
+    'carWifiPassword',
     'wirelessCpEnabled',
     'wirelessAaEnabled',
     'btAdapter',

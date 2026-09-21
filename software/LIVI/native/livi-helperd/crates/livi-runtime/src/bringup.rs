@@ -264,10 +264,8 @@ fn carplay_start_session(cp: &CpConfig) -> Option<CarPlayStartSession> {
         });
     }
     let fe80 = net::wlan_link_local(&cp.wifi_iface)?;
-    let (live_ssid, live_channel) = net::ap_ssid_channel(&cp.wifi_iface);
-    let ssid = live_ssid
-        .filter(|s| !s.is_empty())
-        .unwrap_or_else(|| cp.ssid.clone());
+    let (_, live_channel) = net::ap_ssid_channel(&cp.wifi_iface);
+    let ssid = cp.ssid.clone();
     let channel = live_channel.filter(|c| *c != 0).unwrap_or(cp.channel);
     Some(CarPlayStartSession {
         wired_attributes: None,
@@ -279,7 +277,11 @@ fn carplay_start_session(cp: &CpConfig) -> Option<CarPlayStartSession> {
             security_type: Some(cp.security_type as u8),
         }),
         port: Some(cp.airplay_port),
-        device_identifier: cp.ap_mac.clone().or_else(|| net::wlan_mac(&cp.wifi_iface)),
+        device_identifier: cp
+            .ap_mac
+            .clone()
+            .or_else(|| net::station_bssid(&cp.wifi_iface))
+            .or_else(|| net::wlan_mac(&cp.wifi_iface)),
         public_key: Some(cp.public_key.clone()),
         source_version: Some(cp.source_version.clone()),
     })

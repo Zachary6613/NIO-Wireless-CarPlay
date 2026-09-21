@@ -2,6 +2,46 @@
 set -e
 cd "$(dirname "$0")"
 
+# ---- Clean up a previous interrupted development instance ----
+# Match only processes launched from this checkout; do not touch unrelated Electron apps.
+stop_matching() {
+  local pattern="$1"
+  local pids
+  pids="$(pgrep -f "$pattern" 2>/dev/null || true)"
+  [ -z "$pids" ] || kill -TERM $pids 2>/dev/null || true
+}
+
+stop_matching "^$PWD/node_modules/.*/electron/dist/electron( |$)"
+stop_matching "^node $PWD/node_modules/.*/vite/bin/vite\.js( |$)"
+stop_matching "^$PWD/assets/gstreamer/linux-arm64/bin/gst-device-monitor-1\.0( |$)"
+# helperd normally runs through sudo; the installed sudoers rule makes this non-interactive.
+sudo -n pkill -TERM -f "^$HOME/.config/LIVI/driver/livi-helperd$" 2>/dev/null || true
+sudo -n pkill -TERM -f "^$PWD/native/livi-helperd/target/release/livi-helperd$" 2>/dev/null || true
+sleep 2
+
+# Escalate only processes from this checkout that ignored TERM.
+for pattern in \
+  "^$PWD/node_modules/.*/electron/dist/electron( |$)" \
+  "^node $PWD/node_modules/.*/vite/bin/vite\.js( |$)" \
+  "^$PWD/assets/gstreamer/linux-arm64/bin/gst-device-monitor-1\.0( |$)"; do
+  pids="$(pgrep -f "$pattern" 2>/dev/null || true)"
+  [ -z "$pids" ] || kill -KILL $pids 2>/dev/null || true
+done
+
+# Chromium locks can survive a hard reboot/crash. They are safe to remove now that this
+# checkout has no Electron process.
+rm -f -- "$HOME/.config/LIVI/SingletonCookie" \
+  "$HOME/.config/LIVI/SingletonLock" \
+  "$HOME/.config/LIVI/SingletonSocket"
+
+# A crashed helper can leave its BlueZ Profile UUID registered. Restart BlueZ when
+# passwordless sudo (or a fresh sudo timestamp) permits it; otherwise continue normally.
+if sudo -n systemctl restart bluetooth.service 2>/dev/null; then
+  sleep 1
+else
+  echo "WARN: BlueZ was not reset (run sudo -v before this script if UUID already registered)" >&2
+fi
+
 # ---- Display ----
 export DISPLAY="${DISPLAY:-:0}"
 export XDG_RUNTIME_DIR="${XDG_RUNTIME_DIR:-/run/user/$(id -u)}"

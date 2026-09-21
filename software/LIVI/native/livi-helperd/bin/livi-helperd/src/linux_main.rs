@@ -160,7 +160,10 @@ pub fn run_install_wifi_ap(unit: Option<String>, rule: Option<String>) -> ExitCo
         eprintln!("[wifi-ap] usage: --install-wifi-ap <unit file> <sudoers file>");
         return ExitCode::FAILURE;
     };
-    installed("wifi-ap", livi_runtime::privileged::install_wifi_ap(&unit, &rule))
+    installed(
+        "wifi-ap",
+        livi_runtime::privileged::install_wifi_ap(&unit, &rule),
+    )
 }
 
 /// `--install-udev-rule <rule> [<touch filter>]`
@@ -169,7 +172,10 @@ pub fn run_install_udev_rule(rule: Option<String>, filter: Option<String>) -> Ex
         eprintln!("[udev] usage: --install-udev-rule <rule file> [<touch filter>]");
         return ExitCode::FAILURE;
     };
-    installed("udev", livi_runtime::privileged::install_udev_rule(&rule, filter.as_deref()))
+    installed(
+        "udev",
+        livi_runtime::privileged::install_udev_rule(&rule, filter.as_deref()),
+    )
 }
 
 /// `--install-gvfs-guard <script> <rule>`
@@ -178,7 +184,10 @@ pub fn run_install_gvfs_guard(script: Option<String>, rule: Option<String>) -> E
         eprintln!("[gvfs] usage: --install-gvfs-guard <script file> <sudoers file>");
         return ExitCode::FAILURE;
     };
-    installed("gvfs", livi_runtime::privileged::install_gvfs_guard(&script, &rule))
+    installed(
+        "gvfs",
+        livi_runtime::privileged::install_gvfs_guard(&script, &rule),
+    )
 }
 
 /// `--wifi-ap-claim`: takes the interface from NetworkManager, before it starts.
@@ -233,7 +242,18 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let gpio: i32 = dc.int("carPlayMfiPowerGpio", "LIVI_CP_MFI_POWER_GPIO", 21);
     let adapter = bt_adapter(&dc);
     let name = dc.string("carName", "LIVI_CP_NAME", "LIVI");
-    let ssid = name.clone();
+    let wifi_mode = dc.string("wifiMode", "LIVI_WIFI_MODE", "access-point");
+    let client_wifi = wifi_mode == "client";
+    let ssid = if client_wifi {
+        dc.string("carWifiSsid", "LIVI_CAR_WIFI_SSID", "")
+    } else {
+        name.clone()
+    };
+    let passphrase = if client_wifi {
+        dc.string("carWifiPassword", "LIVI_CAR_WIFI_PASSWORD", "")
+    } else {
+        dc.string("wifiPassword", "LIVI_PASSPHRASE", "12345678")
+    };
     let wifi_iface = ap_iface(&dc);
     let ap_mac = (dc.string("wifiInterface", "LIVI_WIFI_IFACE", "wlan0")
         == livi_dongle::link::CHOICE)
@@ -242,7 +262,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let cp = CpConfig {
         wifi_iface: wifi_iface.clone(),
         ssid: ssid.clone(),
-        passphrase: dc.string("wifiPassword", "LIVI_PASSPHRASE", "12345678"),
+        passphrase,
         channel: dc.int("wifiChannel", "LIVI_CHANNEL", 36u16) as u8,
         security_type: SecurityType::WpaWpa2,
         airplay_port: env_or("LIVI_CP_AIRPLAY_PORT", 7000),

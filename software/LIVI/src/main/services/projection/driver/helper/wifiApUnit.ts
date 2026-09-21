@@ -25,6 +25,7 @@ const UNIT_TEMPLATE = 'livi-wifi-ap.service.template'
 const SUDOERS_TEMPLATE = '99-LIVI-wifi-ap.sudoers.template'
 // The installer writes the same marker, see livi_write_wifi_ap_unit in scripts/install/common.sh.
 const MARKER = '.wifi-ap-install'
+const CLIENT_CONNECTION = 'LIVI-car-wifi'
 
 function helperPath(): string {
   return join(app.getPath('userData'), 'driver', 'livi-helperd')
@@ -98,6 +99,7 @@ function sudo(args: string[]): Promise<boolean> {
 }
 
 function apWanted(config: Config): boolean {
+  if (config.wifiMode === 'client') return false
   if (config.wifiInterface === DONGLE_LINK) return false
   return config.wifiDedicatedInterface || config.wirelessCpEnabled || config.wirelessAaEnabled
 }
@@ -125,9 +127,64 @@ async function releaseInterface(): Promise<void> {
 
 let installing = false
 
+function connectedSsid(iface: string): string {
+  try {
+    return execFileSync('iwgetid', [iface, '--raw'], {
+      encoding: 'utf8',
+      timeout: 3000
+    }).trim()
+  } catch {
+    return ''
+  }
+}
+
+async function reconcileWifiClient(config: Config): Promise<void> {
+  const iface = config.wifiInterface || 'wlan0'
+  const ssid = config.carWifiSsid?.trim()
+  if (!ssid) {
+    console.warn('[wifiClient] client mode selected but carWifiSsid is empty')
+    return
+  }
+  if (connectedSsid(iface) === ssid) {
+    console.log(`[wifiClient] connected to ${ssid} on ${iface}`)
+    return
+  }
+
+  await cmdOk('nmcli', ['device', 'set', iface, 'managed', 'yes'])
+  await cmdOk('nmcli', ['connection', 'delete', CLIENT_CONNECTION])
+  const added = await cmdOk('nmcli', [
+    'connection',
+    'add',
+    'type',
+    'wifi',
+    'ifname',
+    iface,
+    'con-name',
+    CLIENT_CONNECTION,
+    'ssid',
+    ssid
+  ])
+  if (!added) {
+    console.error(`[wifiClient] failed to create NetworkManager profile for ${ssid}`)
+    return
+  }
+  if (config.carWifiPassword) {
+    await cmdOk('nmcli', ['connection', 'modify', CLIENT_CONNECTION, 'wifi-sec.key-mgmt', 'wpa-psk'])
+    await cmdOk('nmcli', ['connection', 'modify', CLIENT_CONNECTION, 'wifi-sec.psk', config.carWifiPassword])
+  }
+  const ok = await cmdOk('nmcli', ['connection', 'up', CLIENT_CONNECTION, 'ifname', iface])
+  if (ok) console.log(`[wifiClient] connected to ${ssid} on ${iface}`)
+  else console.error(`[wifiClient] failed to connect ${iface} to ${ssid}`)
+}
+
 /** Own the interface when dedicated or while wireless CarPlay/AA is on, else return it. */
 export async function reconcileWifiAp(config: Config, window?: BrowserWindow): Promise<void> {
   if (process.platform !== 'linux') return
+  if (config.wifiMode === 'client') {
+    await releaseInterface()
+    await reconcileWifiClient(config)
+    return
+  }
   if (!apWanted(config)) {
     await releaseInterface()
     return
