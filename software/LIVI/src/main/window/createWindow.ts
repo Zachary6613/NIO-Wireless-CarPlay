@@ -38,6 +38,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
   const { projectionService } = services
   const isMac = isMacPlatform()
   const compositorMode = process.env.LIVI_COMPOSITOR === '1'
+  const headless = process.env.LIVI_HEADLESS === '1'
   const transparentWindow = compositorMode || isMac
 
   const savedBounds = compositorMode ? undefined : sanitizeBounds(readMainBounds(runtimeState))
@@ -52,6 +53,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     useContentSize: true,
     kiosk: false,
     autoHideMenuBar: true,
+    show: false,
     transparent: compositorMode,
     backgroundColor: transparentWindow ? '#00000000' : '#000',
     fullscreenable: true,
@@ -157,13 +159,13 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
 
     // In compositor mode the compositor owns the size (tiled toplevel); else start windowed.
     if (!compositorMode) applyWindowedContentSize(win, baseW, baseH)
-    win.show()
+    if (!headless) win.show()
 
-    // Snapshot the geometry
-    scheduleMainBoundsSave()
+    // Snapshot the geometry only for a visible desktop window.
+    if (!headless) scheduleMainBoundsSave()
 
     const forceKiosk = process.env.LIVI_KIOSK === '1'
-    if (runtimeState.config.kiosk?.main || forceKiosk) {
+    if (!headless && (runtimeState.config.kiosk?.main || forceKiosk)) {
       const goFullscreen = () => {
         if (win.isDestroyed()) return
 
@@ -205,7 +207,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
       kiosk: { ...runtimeState.config.kiosk, main: currentKiosk(runtimeState.config) }
     })
 
-    if (isDev()) {
+    if (isDev() && !headless) {
       win.webContents.openDevTools({ mode: 'detach' })
     }
 

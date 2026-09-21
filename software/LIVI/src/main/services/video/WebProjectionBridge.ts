@@ -6,6 +6,10 @@ import { Server, type Socket } from 'socket.io'
 
 type Codec = 'h264' | 'h265' | 'vp9' | 'av1'
 type TouchHandler = (x: number, y: number, action: number) => void
+type SettingsApi = {
+  get: () => Record<string, unknown>
+  save: (patch: Record<string, unknown>) => void
+}
 
 const PAGE = `<!doctype html>
 <html lang="zh-CN">
@@ -19,7 +23,7 @@ const PAGE = `<!doctype html>
     #touch-surface{position:fixed;inset:0;z-index:1;touch-action:none;background:transparent}
     #state{position:fixed;left:12px;top:10px;padding:6px 10px;border-radius:6px;color:#fff;background:#0009;font:14px system-ui;pointer-events:none}
     button{position:fixed;top:10px;z-index:2;padding:8px 12px}
-    #full{right:12px}#sound{right:82px}
+    #full{right:12px}
   </style>
 </head>
 <body>
@@ -27,7 +31,6 @@ const PAGE = `<!doctype html>
   <video id="mse-screen" autoplay muted playsinline style="display:none"></video>
   <div id="touch-surface"></div>
   <div id="state">正在等待 CarPlay 视频…</div>
-  <button id="sound">启用声音</button>
   <button id="full">全屏</button>
   <script src="/bridge-client.js"></script>
   <script>
@@ -164,6 +167,7 @@ const PAGE = `<!doctype html>
       state.style.display = 'block'
       state.textContent = '视频连接中断（' + reason + '），正在重连…'
     })
+    socket.on('open-settings', () => { location.href = '/settings' })
     socket.on('connect_error', error => {
       state.style.display = 'block'
       state.textContent = '视频连接失败：' + error.message
@@ -237,44 +241,64 @@ const PAGE = `<!doctype html>
       socket.emit('touch', { x: p.x, y: p.y, action })
     }
     surface.addEventListener('pointerdown', e => {
+      queued = null
+      if (moveFrame) cancelAnimationFrame(moveFrame)
+      moveFrame = 0
       surface.setPointerCapture(e.pointerId); send(e, 14); e.preventDefault()
     })
-    let queued = null, movePending = false
+    let queued = null, moveFrame = 0
     surface.addEventListener('pointermove', e => {
       if (!surface.hasPointerCapture(e.pointerId)) return
-      queued = e
-      if (movePending) return
-      movePending = true
-      requestAnimationFrame(() => {
-        const q = queued; queued = null; movePending = false; if (q) send(q, 15)
+      const events = e.getCoalescedEvents?.() ?? [e]
+      queued = events[events.length - 1] ?? e
+      if (moveFrame) return
+      moveFrame = requestAnimationFrame(() => {
+        const q = queued; queued = null; moveFrame = 0; if (q) send(q, 15)
       })
       e.preventDefault()
     })
     for (const name of ['pointerup','pointercancel']) surface.addEventListener(name, e => {
+      if (moveFrame) cancelAnimationFrame(moveFrame)
+      moveFrame = 0
+      const q = queued
+      queued = null
+      // Preserve ordering for quick swipes: the last move must arrive before touch-up.
+      if (q && name === 'pointerup') send(q, 15)
       send(e, 16); try { surface.releasePointerCapture(e.pointerId) } catch {}; e.preventDefault()
     })
     surface.addEventListener('contextmenu', e => e.preventDefault())
     document.querySelector('#full').onclick = () => document.documentElement.requestFullscreen?.()
-    const soundButton = document.querySelector('#sound')
     let audioAbort = null
     let audioContext = null
-    soundButton.onclick = async () => {
+    let audioGeneration = 0
+    let audioRetryTimer = 0
+    function scheduleAudioReconnect(generation, delay = 1000) {
+      if (generation !== audioGeneration) return
+      clearTimeout(audioRetryTimer)
+      audioRetryTimer = setTimeout(() => {
+        if (generation === audioGeneration) void startAudio()
+      }, delay)
+    }
+    async function startAudio() {
+      const generation = ++audioGeneration
+      clearTimeout(audioRetryTimer)
       audioAbort?.abort()
       audioContext?.close().catch(() => {})
       audioAbort = new AbortController()
-      soundButton.textContent = '正在连接声音…'
       try {
         const ctx = new AudioContext({ sampleRate: 48000, latencyHint: 'interactive' })
         audioContext = ctx
-        await ctx.resume()
-        const response = await fetch('/audio.pcm?t=' + Date.now(), { signal: audioAbort.signal, cache: 'no-store' })
+        await ctx.resume().catch(() => {})
+        const response = await fetch('/audio.pcm?t=' + Date.now(), {
+          signal: audioAbort.signal,
+          cache: 'no-store'
+        })
         if (!response.ok || !response.body) throw new Error('HTTP ' + response.status)
-        soundButton.style.display = 'none'
         const reader = response.body.getReader()
         let carry = new Uint8Array(0)
         let nextTime = ctx.currentTime + 0.06
         const scheduled = new Set()
-        while (true) {
+        while (generation === audioGeneration) {
           const { value, done } = await reader.read()
           if (done) throw new Error('audio stream ended')
           const data = new Uint8Array(carry.length + value.length)
@@ -304,14 +328,132 @@ const PAGE = `<!doctype html>
           source.start(nextTime)
           nextTime += frames / 48000
         }
-      } catch (e) {
-        if (e.name !== 'AbortError') {
-          soundButton.style.display = 'block'
-          soundButton.textContent = '重试声音'
-        }
+      } catch (error) {
+        if (generation === audioGeneration && error.name !== 'AbortError')
+          scheduleAudioReconnect(generation)
       }
     }
+    document.addEventListener('pointerdown', () => {
+      if (audioContext?.state === 'suspended') audioContext.resume().catch(() => {})
+    }, { capture: true })
+    window.addEventListener('online', () => void startAudio())
+    document.addEventListener('visibilitychange', () => {
+      if (document.visibilityState === 'visible') void startAudio()
+    })
+    void startAudio()
   </script>
+</body>
+</html>`
+
+const SETTINGS_PAGE = `<!doctype html>
+<html lang="zh-CN">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>LIVI 设置</title>
+  <style>
+    :root{color-scheme:dark;font-family:system-ui,sans-serif}
+    *{box-sizing:border-box}body{margin:0;background:#101114;color:#eee}
+    header{position:sticky;top:0;z-index:2;display:flex;align-items:center;gap:12px;padding:14px 18px;background:#181a1fdd;backdrop-filter:blur(10px);border-bottom:1px solid #333}
+    h1{font-size:20px;margin:0;flex:1}button,a.button{border:0;border-radius:8px;padding:10px 15px;background:#3478f6;color:white;text-decoration:none;font-size:14px;cursor:pointer}
+    button.secondary,a.secondary{background:#30343c}.wrap{max-width:960px;margin:auto;padding:18px}
+    section{background:#191b20;border:1px solid #30333a;border-radius:12px;padding:16px;margin-bottom:16px}
+    h2{font-size:17px;margin:0 0 14px}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(240px,1fr));gap:12px}
+    label{display:flex;flex-direction:column;gap:6px;font-size:13px;color:#b8bdc8}
+    label.check{flex-direction:row;align-items:center;color:#eee;padding-top:22px}
+    input,select,textarea{width:100%;border:1px solid #444a55;border-radius:7px;background:#0f1115;color:#fff;padding:9px;font:14px ui-monospace,monospace}
+    input[type=checkbox]{width:20px;height:20px}textarea{min-height:360px;resize:vertical}
+    #status{font-size:13px;color:#9ec1ff}.hint{font-size:12px;color:#858b98;margin-top:10px}
+    details summary{cursor:pointer;font-weight:600;margin-bottom:12px}
+  </style>
+</head>
+<body>
+<header><h1>LIVI 设置</h1><span id="status">正在读取…</span><a class="button secondary" href="/">返回 CarPlay</a><button id="save">保存设置</button></header>
+<div class="wrap">
+  <section><h2>无线连接</h2><div class="grid" id="wireless"></div></section>
+  <section><h2>CarPlay 与 MFi</h2><div class="grid" id="carplay"></div></section>
+  <section><h2>投屏画面</h2><div class="grid" id="display"></div></section>
+  <section><h2>声音</h2><div class="grid" id="audio"></div></section>
+  <section><h2>系统</h2><div class="grid" id="system"></div></section>
+  <section><details><summary>高级配置（完整 config.json）</summary><textarea id="advanced" spellcheck="false"></textarea><div class="hint">高级配置会覆盖上方表单。格式错误时不会保存。</div></details></section>
+</div>
+<script>
+const groups={
+  wireless:[
+    ['wirelessCpEnabled','启用无线 CarPlay','bool'],['wirelessAaEnabled','启用无线 Android Auto','bool'],
+    ['carName','车机名称','text'],['btAdapter','蓝牙适配器','text'],['wifiInterface','Wi-Fi 网卡','text'],
+    ['wifiDedicatedInterface','Wi-Fi 为专用网卡','bool'],['wifiType','Wi-Fi 频段','select',['5ghz','2.4ghz']],
+    ['country','Wi-Fi 国家代码','text'],['wifiChannel','Wi-Fi 信道','number'],['wifiChannelWidth','信道宽度','number'],
+    ['wifiPassword','热点密码','password']
+  ],
+  carplay:[
+    ['carPlayMfiI2cBus','MFi I²C 总线','number'],['carPlayMfiPowerGpio','MFi 电源 GPIO（-1 为常供电）','number'],
+    ['carPlaySourceVersion','CarPlay Source 版本','text'],['autoConn','自动连接','bool']
+  ],
+  display:[
+    ['projectionWidth','主画面宽度','number'],['projectionHeight','主画面高度','number'],
+    ['projectionFps','帧率','number'],['projectionDpi','DPI','number'],
+    ['projectionSafeAreaTop','安全区顶部','number'],['projectionSafeAreaBottom','安全区底部','number'],
+    ['projectionSafeAreaLeft','安全区左侧','number'],['projectionSafeAreaRight','安全区右侧','number'],
+    ['darkMode','深色模式','bool']
+  ],
+  audio:[
+    ['disableAudioOutput','禁用音频输出','bool'],['huVolume','主机音量（0-1）','number'],
+    ['huVolumeLinkSystem','联动系统音量','bool'],['audioOutputDevice','音频输出设备','text'],
+    ['audioInputDevice','麦克风设备','text'],['visualAudioDelayMs','画面音频补偿（ms）','number']
+  ],
+  system:[
+    ['language','语言','text'],['debugLogging','调试日志','bool'],['gpsEnabled','启用 GPS','bool'],
+    ['gpsDevice','GPS 串口','text'],['gpsBaudRate','GPS 波特率','number'],['timezone','时区','text']
+  ]
+}
+let settings={}
+function field(spec){
+  const [key,title,type,values]=spec
+  const label=document.createElement('label')
+  label.dataset.key=key
+  if(type==='bool'){
+    label.className='check'
+    const input=document.createElement('input'); input.type='checkbox'; input.checked=!!settings[key]
+    input.dataset.type=type; label.append(input,document.createTextNode(title))
+  }else{
+    label.textContent=title
+    const input=type==='select'?document.createElement('select'):document.createElement('input')
+    if(type==='select') for(const value of values){const o=document.createElement('option');o.value=value;o.textContent=value;input.append(o)}
+    else input.type=type
+    input.value=settings[key]??''; input.dataset.type=type; label.append(input)
+  }
+  return label
+}
+async function load(){
+  const r=await fetch('/api/settings',{cache:'no-store'})
+  if(!r.ok) throw new Error('HTTP '+r.status)
+  settings=await r.json()
+  for(const [id,specs] of Object.entries(groups)){
+    const root=document.getElementById(id); root.replaceChildren(...specs.map(field))
+  }
+  document.getElementById('advanced').value=JSON.stringify(settings,null,2)
+  document.getElementById('status').textContent='已连接'
+}
+document.getElementById('save').onclick=async()=>{
+  const status=document.getElementById('status')
+  try{
+    status.textContent='正在保存…'
+    const full=JSON.parse(document.getElementById('advanced').value)
+    for(const label of document.querySelectorAll('label[data-key]')){
+      const input=label.querySelector('input,select'), key=label.dataset.key, type=input.dataset.type
+      full[key]=type==='bool'?input.checked:type==='number'?Number(input.value):input.value
+    }
+    const r=await fetch('/api/settings',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify(full)})
+    const result=await r.json()
+    if(!r.ok||!result.ok) throw new Error(result.error||('HTTP '+r.status))
+    settings=result.settings
+    document.getElementById('advanced').value=JSON.stringify(settings,null,2)
+    status.textContent='已保存'
+  }catch(e){status.textContent='保存失败：'+e.message}
+}
+load().catch(e=>document.getElementById('status').textContent='读取失败：'+e.message)
+</script>
 </body>
 </html>`
 
@@ -333,16 +475,18 @@ class WebProjectionBridge {
   private gopBytes = 0
   private touchHandler: TouchHandler | null = null
   private keyframeHandler: (() => void) | null = null
+  private settingsApi: SettingsApi | null = null
   private lastKeyframeRequest = 0
 
   get enabled(): boolean {
     return process.env.LIVI_WEB_BRIDGE === '1'
   }
 
-  start(touchHandler: TouchHandler, keyframeHandler: () => void): void {
+  start(touchHandler: TouchHandler, keyframeHandler: () => void, settingsApi: SettingsApi): void {
     if (!this.enabled || this.server) return
     this.touchHandler = touchHandler
     this.keyframeHandler = keyframeHandler
+    this.settingsApi = settingsApi
     const port = Number.parseInt(process.env.LIVI_WEB_PORT ?? '8080', 10) || 8080
     const certPath = process.env.LIVI_WEB_TLS_CERT
     const keyPath = process.env.LIVI_WEB_TLS_KEY
@@ -383,6 +527,12 @@ class WebProjectionBridge {
     this.server.listen(port, '0.0.0.0', () => {
       console.log(`[WebBridge] open ${tls ? 'https' : 'http'}://0.0.0.0:${port}`)
     })
+  }
+
+  openSettings(): void {
+    if (!this.enabled) return
+    console.log('[WebBridge] host UI requested; opening browser settings')
+    this.io?.emit('open-settings')
   }
 
   private requestKeyframe(): void {
@@ -457,6 +607,53 @@ class WebProjectionBridge {
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const url = new URL(req.url ?? '/', 'http://localhost')
+    if (url.pathname === '/api/settings' && req.method === 'GET') {
+      res.writeHead(200, {
+        'content-type': 'application/json; charset=utf-8',
+        'cache-control': 'no-store'
+      })
+      res.end(JSON.stringify(this.settingsApi?.get() ?? {}))
+      return
+    }
+    if (url.pathname === '/api/settings' && req.method === 'PATCH') {
+      const chunks: Buffer[] = []
+      let size = 0
+      req.on('data', (chunk: Buffer) => {
+        size += chunk.length
+        if (size <= 256 * 1024) chunks.push(chunk)
+      })
+      req.on('end', () => {
+        try {
+          if (size > 256 * 1024) throw new Error('body too large')
+          const patch = JSON.parse(Buffer.concat(chunks).toString()) as unknown
+          if (!patch || typeof patch !== 'object' || Array.isArray(patch))
+            throw new Error('settings patch must be an object')
+          const current = this.settingsApi?.get() ?? {}
+          const clean: Record<string, unknown> = {}
+          for (const [key, value] of Object.entries(patch)) {
+            if (Object.prototype.hasOwnProperty.call(current, key)) clean[key] = value
+          }
+          this.settingsApi?.save(clean)
+          res.writeHead(200, {
+            'content-type': 'application/json; charset=utf-8',
+            'cache-control': 'no-store'
+          })
+          res.end(JSON.stringify({ ok: true, settings: this.settingsApi?.get() ?? {} }))
+        } catch (error) {
+          res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ ok: false, error: String(error) }))
+        }
+      })
+      return
+    }
+    if (url.pathname === '/settings') {
+      res.writeHead(200, {
+        'content-type': 'text/html; charset=utf-8',
+        'cache-control': 'no-store'
+      })
+      res.end(SETTINGS_PAGE)
+      return
+    }
     if (url.pathname === '/bridge-client.js') {
       try {
         const script = readFileSync('node_modules/socket.io/client-dist/socket.io.min.js')

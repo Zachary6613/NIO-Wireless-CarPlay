@@ -37,6 +37,7 @@ import { setupTelemetry } from '@main/services/telemetry/setupTelemetry'
 import { TelemetryStore } from '@main/services/telemetry/TelemetryStore'
 import { runtimeStateProps } from '@main/types'
 import type { Config } from '@shared/types'
+import { CommandMapping } from '@shared/types/ProjectionEnums'
 import { app, BrowserWindow } from 'electron'
 import { loadConfig } from './config/loadConfig'
 import { restartApp } from './ipc/app'
@@ -65,7 +66,7 @@ if (bootstrapCompositor()) {
 } else {
   app.on('second-instance', () => {
     const win = getMainWindow()
-    if (!win) return
+    if (!win || process.env.LIVI_HEADLESS === '1') return
     if (win.isMinimized()) win.restore()
     win.show()
     win.focus()
@@ -75,10 +76,6 @@ if (bootstrapCompositor()) {
 app.whenReady().then(async () => {
   if (!bootAllowed) return
   const projectionService = new ProjectionService()
-  webProjectionBridge.start(
-    (x, y, action) => projectionService.sendRemoteTouch(x, y, action),
-    () => projectionService.requestRemoteKeyframe()
-  )
   registerUsbIpc()
   const telemetryStore = new TelemetryStore()
   const telemetrySocket = new TelemetrySocket(telemetryStore, 4000)
@@ -91,6 +88,23 @@ app.whenReady().then(async () => {
     wmExitedKiosk: false
   }
   setDebugLogging(runtimeState.config.debugLogging === true)
+  webProjectionBridge.start(
+    (x, y, action) => projectionService.sendRemoteTouch(x, y, action),
+    () => projectionService.requestRemoteKeyframe(),
+    {
+      get: () => runtimeState.config as unknown as Record<string, unknown>,
+      save: (patch) => saveSettings(runtimeState, patch as Partial<Config>)
+    }
+  )
+
+  projectionService.onProjectionEvent((payload) => {
+    if (
+      payload.type === 'command' &&
+      payload.message.value === CommandMapping.requestHostUI
+    ) {
+      webProjectionBridge.openSettings()
+    }
+  })
 
   setCustomPageConfig(() => runtimeState.config)
   setWifiApReport((patch) => saveSettings(runtimeState, patch))
@@ -153,7 +167,7 @@ app.whenReady().then(async () => {
   registerAppProtocol()
   registerIpc(runtimeState, services)
   createMainWindow(runtimeState, services)
-  setupSecondaryWindows(runtimeState)
+  if (process.env.LIVI_HEADLESS !== '1') setupSecondaryWindows(runtimeState)
 
   // Bottom plane = theme background colour. Linux: the compositor draws the backdrop. macOS: paint
   // the window content view itself. Apply now and on every config change.

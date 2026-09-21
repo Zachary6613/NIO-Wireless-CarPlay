@@ -27,7 +27,10 @@ if [ -z "${LIVI_HELPER_BIN:-}" ]; then
   exit 1
 fi
 
-# ---- Kiosk mode ----
+# ---- Headless web-managed mode (no visible Raspberry Pi desktop window) ----
+export LIVI_HEADLESS="${LIVI_HEADLESS:-1}"
+
+# ---- Kiosk mode (used only when LIVI_HEADLESS=0) ----
 export LIVI_KIOSK="${LIVI_KIOSK:-1}"
 
 # ---- LAN web bridge: use the existing certificate for HTTPS when available ----
