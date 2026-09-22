@@ -271,7 +271,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     }
   })
 
-  if (isDev()) {
+  if (isDev() && process.env.LIVI_INTERNALS === '1') {
     const gpuWindow = new BrowserWindow({
       width: 1000,
       height: 800,
@@ -281,7 +281,7 @@ export function createMainWindow(runtimeState: runtimeStateProps, services: Serv
     gpuWindow.loadURL('chrome://gpu')
   }
 
-  if (isDev()) {
+  if (isDev() && process.env.LIVI_INTERNALS === '1') {
     const mediaWindow = new BrowserWindow({
       width: 1000,
       height: 800,

@@ -126,6 +126,26 @@ async function releaseInterface(): Promise<void> {
 }
 
 let installing = false
+let clientRetryTimer: NodeJS.Timeout | undefined
+let clientRetryAttempt = 0
+let clientGeneration = 0
+
+function cancelClientRetry(): void {
+  if (clientRetryTimer) clearTimeout(clientRetryTimer)
+  clientRetryTimer = undefined
+}
+
+function scheduleClientRetry(config: Config, generation: number): void {
+  if (generation !== clientGeneration || clientRetryTimer) return
+  const delays = [5_000, 10_000, 20_000, 30_000]
+  const delay = delays[Math.min(clientRetryAttempt, delays.length - 1)]
+  clientRetryAttempt += 1
+  console.warn(`[wifiClient] retrying in ${delay / 1000}s (attempt ${clientRetryAttempt})`)
+  clientRetryTimer = setTimeout(() => {
+    clientRetryTimer = undefined
+    void reconcileWifiClient(config, generation)
+  }, delay)
+}
 
 function connectedSsid(iface: string): string {
   try {
@@ -138,7 +158,7 @@ function connectedSsid(iface: string): string {
   }
 }
 
-async function reconcileWifiClient(config: Config): Promise<void> {
+async function reconcileWifiClient(config: Config, generation: number): Promise<void> {
   const iface = config.wifiInterface || 'wlan0'
   const ssid = config.carWifiSsid?.trim()
   if (!ssid) {
@@ -146,6 +166,8 @@ async function reconcileWifiClient(config: Config): Promise<void> {
     return
   }
   if (connectedSsid(iface) === ssid) {
+    cancelClientRetry()
+    clientRetryAttempt = 0
     console.log(`[wifiClient] connected to ${ssid} on ${iface}`)
     return
   }
@@ -166,23 +188,41 @@ async function reconcileWifiClient(config: Config): Promise<void> {
   ])
   if (!added) {
     console.error(`[wifiClient] failed to create NetworkManager profile for ${ssid}`)
+    scheduleClientRetry(config, generation)
     return
   }
   if (config.carWifiPassword) {
     await cmdOk('nmcli', ['connection', 'modify', CLIENT_CONNECTION, 'wifi-sec.key-mgmt', 'wpa-psk'])
-    await cmdOk('nmcli', ['connection', 'modify', CLIENT_CONNECTION, 'wifi-sec.psk', config.carWifiPassword])
+    await cmdOk('nmcli', [
+      'connection',
+      'modify',
+      CLIENT_CONNECTION,
+      'wifi-sec.psk',
+      config.carWifiPassword,
+      'wifi-sec.psk-flags',
+      '0'
+    ])
   }
   const ok = await cmdOk('nmcli', ['connection', 'up', CLIENT_CONNECTION, 'ifname', iface])
-  if (ok) console.log(`[wifiClient] connected to ${ssid} on ${iface}`)
-  else console.error(`[wifiClient] failed to connect ${iface} to ${ssid}`)
+  if (ok) {
+    cancelClientRetry()
+    clientRetryAttempt = 0
+    console.log(`[wifiClient] connected to ${ssid} on ${iface}`)
+  } else {
+    console.error(`[wifiClient] failed to connect ${iface} to ${ssid}`)
+    scheduleClientRetry(config, generation)
+  }
 }
 
 /** Own the interface when dedicated or while wireless CarPlay/AA is on, else return it. */
 export async function reconcileWifiAp(config: Config, window?: BrowserWindow): Promise<void> {
   if (process.platform !== 'linux') return
+  cancelClientRetry()
+  clientRetryAttempt = 0
+  const generation = ++clientGeneration
   if (config.wifiMode === 'client') {
     await releaseInterface()
-    await reconcileWifiClient(config)
+    await reconcileWifiClient(config, generation)
     return
   }
   if (!apWanted(config)) {

@@ -196,6 +196,47 @@ pnpm run build:linux:arm64     # 树莓派；x86 设备使用 pnpm run build:lin
 
 芯片应答地址应为 `0x10`。此脚本只能确认 I2C 通信，不能验证 MFi 证书是否有效。
 
+## 树莓派运行与车机 Wi-Fi 配置
+
+在 `software/LIVI` 目录启动、停止或查看开机自启服务：
+
+```bash
+./run-livi-dev.sh
+./stop-livi-dev.sh
+sudo systemctl restart livi-dev
+systemctl status livi-dev --no-pager
+journalctl -u livi-dev -b -f
+```
+
+不要使用 `sudo ./run-livi-dev.sh`。以 root 身份运行会切换 HOME 和 Corepack 缓存，可能导致
+pnpm 再次下载。脚本内部需要的特权操作已单独授权。
+
+使用共享的车机 Wi-Fi 运行无线 CarPlay 时，在 Web 设置页填写网络模式 `client`、车机 Wi-Fi
+名称和密码、网卡 `wlan0`，并启用无线 CarPlay。保存后 LIVI 会更新 `LIVI-car-wifi`
+NetworkManager 连接并自动重试。
+
+密码必须作为系统连接持久保存（`802-11-wireless-security.psk-flags=0`），这样无人登录桌面的
+冷启动也不依赖图形密码代理。修改账号或密码后可以直接冷重启验证：
+
+```bash
+sudo reboot
+# 重启后
+systemctl status livi-dev --no-pager
+journalctl -u livi-dev -b --no-pager | \
+  grep -E 'wifiClient|connected|retrying|no-secrets|Insufficient'
+```
+
+正常日志包含 `[wifiClient] connected to ...`。若出现 `no-secrets` 或
+`Insufficient privileges`，执行：
+
+```bash
+nmcli -s -g 802-11-wireless-security.psk-flags connection show LIVI-car-wifi
+nmcli general permissions | grep -E 'network-control|settings.modify|wifi.scan'
+```
+
+第一条应输出 `0`，NetworkManager 的相关权限应显示“是”。同时检查
+`/etc/polkit-1/rules.d/49-livi-networkmanager.rules` 是否存在。
+
 ## 文档导航
 
 | 文档 | 内容 |

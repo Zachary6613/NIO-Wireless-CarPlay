@@ -95,15 +95,18 @@ vi.mock('@main/ipc/utils', () => ({
 
 describe('createMainWindow', () => {
   const originalRendererUrl = process.env.ELECTRON_RENDERER_URL
+  const originalInternals = process.env.LIVI_INTERNALS
 
   beforeEach(async () => {
     browserWindowInstances.length = 0
     vi.clearAllMocks()
     process.env.ELECTRON_RENDERER_URL = originalRendererUrl
+    process.env.LIVI_INTERNALS = originalInternals
   })
 
   afterAll(async () => {
     process.env.ELECTRON_RENDERER_URL = originalRendererUrl
+    process.env.LIVI_INTERNALS = originalInternals
   })
 
   test('creates main BrowserWindow and loads app protocol url in production mode', async () => {
@@ -243,8 +246,9 @@ describe('createMainWindow', () => {
     ;(isDev as Mock).mockReturnValue(false)
   })
 
-  test('creates extra dev windows in dev mode', async () => {
+  test('creates extra dev windows when explicitly enabled', async () => {
     ;(isDev as Mock).mockReturnValue(true)
+    process.env.LIVI_INTERNALS = '1'
     process.env.ELECTRON_RENDERER_URL = 'http://localhost:5173'
 
     const runtimeState = {
