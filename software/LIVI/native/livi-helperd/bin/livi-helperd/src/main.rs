@@ -2,6 +2,8 @@ use std::process::ExitCode;
 
 #[cfg(target_os = "linux")]
 mod linux_main;
+#[cfg(target_os = "linux")]
+mod ethernet_dhcp;
 // The wired watcher drives a phone on this machine's USB or one on a LIVI Link dongle.
 #[cfg(target_os = "linux")]
 mod aa;
@@ -13,6 +15,7 @@ mod wired;
 /// Every switch this binary answers to.
 const SWITCHES: &[&str] = &[
     "--wifi-ap-status",
+    "--ethernet-dhcp",
     "--wifi-channels",
     "--install-wifi-ap",
     "--install-udev-rule",
@@ -38,6 +41,10 @@ fn main() -> ExitCode {
     {
         if std::env::args().any(|a| a == "--wifi-ap-status") {
             return linux_main::run_wifi_ap_status();
+        }
+        if let Some(at) = std::env::args().position(|a| a == "--ethernet-dhcp") {
+            let mut rest = std::env::args().skip(at + 1);
+            return ethernet_dhcp::run(rest.next(), rest.next());
         }
         if std::env::args().any(|a| a == "--wifi-channels") {
             return livi_wifi::run();

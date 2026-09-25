@@ -3,6 +3,7 @@ import { readFileSync } from 'node:fs'
 import http from 'node:http'
 import https from 'node:https'
 import { Server, type Socket } from 'socket.io'
+import { getEthernetDhcpStatus, setEthernetDhcpEnabled, setEthernetFallback } from '@main/services/network/ethernetDhcp'
 
 type Codec = 'h264' | 'h265' | 'vp9' | 'av1'
 type TouchHandler = (x: number, y: number, action: number) => void
@@ -371,6 +372,7 @@ const SETTINGS_PAGE = `<!doctype html>
 <header><h1>LIVI 设置</h1><span id="status">正在读取…</span><a class="button secondary" href="/">返回 CarPlay</a><button id="save">保存设置</button></header>
 <div class="wrap">
   <section><h2>无线连接</h2><div class="grid" id="wireless"></div></section>
+  <section><h2>有线网络</h2><label class="check"><input type="checkbox" id="ethernet-dhcp" disabled>网口提供 DHCP（eth0）</label><label>外部 DHCP 失败时的备用静态 IP（IPv4/CIDR）<input id="ethernet-fallback" value="192.168.77.1/24" placeholder="192.168.77.1/24"></label><button type="button" id="ethernet-fallback-save">保存备用 IP</button><div id="ethernet-dhcp-status" class="hint">正在读取状态…</div><div class="hint">开启：网口给外部设备分配地址。关闭：先从外部获取地址，失败后使用备用静态 IP；开机及重新插线自动生效。切换可能暂时中断网口连接。</div></section>
   <section><h2>CarPlay 与 MFi</h2><div class="grid" id="carplay"></div></section>
   <section><h2>投屏画面</h2><div class="grid" id="display"></div></section>
   <section><h2>声音</h2><div class="grid" id="audio"></div></section>
@@ -454,6 +456,48 @@ document.getElementById('save').onclick=async()=>{
     status.textContent='已保存'
   }catch(e){status.textContent='保存失败：'+e.message}
 }
+async function loadEthernetDhcp(){
+  const response=await fetch('/api/ethernet-dhcp',{cache:'no-store'})
+  const result=await response.json()
+  if(!response.ok) throw new Error(result.error||('HTTP '+response.status))
+  renderEthernetDhcp(result)
+}
+function renderEthernetDhcp(result){
+  const input=document.getElementById('ethernet-dhcp')
+  input.disabled=!result.installed
+  input.checked=result.enabled
+  document.getElementById('ethernet-fallback').value=result.fallback
+  document.getElementById('ethernet-dhcp-status').textContent=
+    !result.installed?'DHCP 服务未安装':result.enabled?(result.active?'正在分配地址':'DHCP 服务未运行'):'客户端模式；当前网口配置：'+(result.profile||'未连接')
+}
+document.getElementById('ethernet-dhcp').onchange=async(event)=>{
+  const input=event.currentTarget, status=document.getElementById('ethernet-dhcp-status')
+  input.disabled=true
+  status.textContent='正在切换…'
+  try{
+    const response=await fetch('/api/ethernet-dhcp',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({enabled:input.checked})})
+    const result=await response.json()
+    if(!response.ok) throw new Error(result.error||('HTTP '+response.status))
+    renderEthernetDhcp(result)
+  }catch(error){
+    input.checked=!input.checked
+    status.textContent='切换失败：'+error.message
+  }finally{input.disabled=false}
+}
+document.getElementById('ethernet-fallback-save').onclick=async()=>{
+  const button=document.getElementById('ethernet-fallback-save'), status=document.getElementById('ethernet-dhcp-status')
+  button.disabled=true
+  try{
+    const fallback=document.getElementById('ethernet-fallback').value.trim()
+    const response=await fetch('/api/ethernet-dhcp',{method:'PATCH',headers:{'content-type':'application/json'},body:JSON.stringify({fallback})})
+    const result=await response.json()
+    if(!response.ok) throw new Error(result.error||('HTTP '+response.status))
+    renderEthernetDhcp(result)
+    status.textContent='备用 IP 已保存；'+status.textContent
+  }catch(error){status.textContent='保存失败：'+error.message}
+  finally{button.disabled=false}
+}
+loadEthernetDhcp().catch(error=>document.getElementById('ethernet-dhcp-status').textContent='读取失败：'+error.message)
 load().catch(e=>document.getElementById('status').textContent='读取失败：'+e.message)
 </script>
 </body>
@@ -609,6 +653,43 @@ class WebProjectionBridge {
 
   private handleRequest(req: http.IncomingMessage, res: http.ServerResponse): void {
     const url = new URL(req.url ?? '/', 'http://localhost')
+    if (url.pathname === '/api/ethernet-dhcp' && req.method === 'GET') {
+      void getEthernetDhcpStatus().then((status) => {
+        res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+        res.end(JSON.stringify(status))
+      }).catch((error) => {
+        res.writeHead(500, { 'content-type': 'application/json; charset=utf-8' })
+        res.end(JSON.stringify({ error: String(error) }))
+      })
+      return
+    }
+    if (url.pathname === '/api/ethernet-dhcp' && req.method === 'PATCH') {
+      const chunks: Buffer[] = []
+      let size = 0
+      req.on('data', (chunk: Buffer) => {
+        size += chunk.length
+        if (size <= 1024) chunks.push(chunk)
+      })
+      req.on('end', async () => {
+        try {
+          if (size > 1024) throw new Error('body too large')
+          const body = JSON.parse(Buffer.concat(chunks).toString()) as unknown
+          if (!body || typeof body !== 'object' || Array.isArray(body)) throw new Error('invalid body')
+          const update = body as { enabled?: unknown; fallback?: unknown }
+          if (update.enabled === undefined && update.fallback === undefined) throw new Error('missing update')
+          if (update.enabled !== undefined && typeof update.enabled !== 'boolean') throw new Error('enabled must be a boolean')
+          if (update.fallback !== undefined && typeof update.fallback !== 'string') throw new Error('fallback must be a string')
+          if (update.fallback !== undefined) await setEthernetFallback(update.fallback)
+          const status = update.enabled === undefined ? await getEthernetDhcpStatus() : await setEthernetDhcpEnabled(update.enabled)
+          res.writeHead(200, { 'content-type': 'application/json; charset=utf-8', 'cache-control': 'no-store' })
+          res.end(JSON.stringify(status))
+        } catch (error) {
+          res.writeHead(400, { 'content-type': 'application/json; charset=utf-8' })
+          res.end(JSON.stringify({ error: String(error) }))
+        }
+      })
+      return
+    }
     if (url.pathname === '/api/settings' && req.method === 'GET') {
       res.writeHead(200, {
         'content-type': 'application/json; charset=utf-8',
