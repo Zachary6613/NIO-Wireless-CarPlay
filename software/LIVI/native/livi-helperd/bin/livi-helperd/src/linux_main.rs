@@ -238,6 +238,7 @@ pub fn run() -> ExitCode {
 
 async fn serve() -> Result<(), Box<dyn std::error::Error>> {
     let dc = DeviceConfig::load();
+    let cp_wireless = std::env::var("LIVI_CP_WIRELESS").is_ok_and(|v| v == "1");
     let bus_num: u32 = dc.int("carPlayMfiI2cBus", "LIVI_CP_MFI_I2C_BUS", 2);
     let gpio: i32 = dc.int("carPlayMfiPowerGpio", "LIVI_CP_MFI_POWER_GPIO", 21);
     let adapter = bt_adapter(&dc);
@@ -318,7 +319,7 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
 
     livi_runtime::bluetoothd::setup();
     println!("[helperd] starting BlueZ profile on {adapter}");
-    let (conn, mut incoming) = bt::start(&adapter, &name, true).await?;
+    let (conn, mut incoming, _cp_incoming_guard) = bt::start(&adapter, &name, true, cp_wireless).await?;
     // The dongle's own Bluetooth, where the accessory lives on the dongle and only the session
     // comes up here. Off unless asked for, because it and the tunnelled adapter want the same
     // controller.
@@ -368,12 +369,14 @@ async fn serve() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    tokio::spawn(reconnect::run(
+    if cp_wireless {
+        tokio::spawn(reconnect::run(
         conn.clone(),
         adapter.clone(),
         ap_iface(&DeviceConfig::load()),
         state.clone(),
-    ));
+        ));
+    }
 
     if std::env::var("LIVI_AA_WIRELESS").unwrap_or_else(|_| "1".into()) != "0" {
         // The projection listener the WPP bootstrap points the phone at.

@@ -11,6 +11,7 @@ use crate::{EP_IN, EP_OUT};
 
 const USBMUX_IFACE: u8 = 1;
 const READ_CHUNK: usize = 65536;
+const USBMUX_OUT_MAX_PACKET: usize = 512;
 
 pub struct UsbWriter(Endpoint<Bulk, Out>);
 pub struct UsbReader(Endpoint<Bulk, In>);
@@ -20,7 +21,15 @@ impl MuxWriter for UsbWriter {
         let mut buf = Buffer::new(data.len());
         buf.extend_from_slice(data);
         let completion = self.0.transfer_blocking(buf, Duration::from_millis(2000));
-        completion.status.map_err(|e| format!("bulk write: {e}"))
+        completion.status.map_err(|e| format!("bulk write: {e}"))?;
+        // A full-size final bulk packet does not delimit the transfer for the phone.
+        // The iAP2 identification record happens to produce exactly 512 usbmux bytes.
+        if !data.is_empty() && data.len() % USBMUX_OUT_MAX_PACKET == 0 {
+            let zlp = self.0.transfer_blocking(Buffer::new(0), Duration::from_millis(2000));
+            zlp.status.map_err(|e| format!("bulk zero-length packet: {e}"))?;
+            eprintln!("[usbmux] sent zero-length packet after {} bytes", data.len());
+        }
+        Ok(())
     }
 }
 

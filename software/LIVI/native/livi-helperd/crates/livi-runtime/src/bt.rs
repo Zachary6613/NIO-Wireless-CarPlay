@@ -142,21 +142,25 @@ pub async fn start(
     adapter: &str,
     alias: &str,
     discoverable: bool,
-) -> Result<(Connection, mpsc::UnboundedReceiver<IncomingConn>), Box<dyn Error>> {
+    cp_wireless: bool,
+) -> Result<(Connection, mpsc::UnboundedReceiver<IncomingConn>, mpsc::UnboundedSender<IncomingConn>), Box<dyn Error>> {
     let conn = Connection::system().await?;
     let (tx, rx) = mpsc::unbounded_channel();
 
-    conn.object_server()
-        .at(IAP_SERVER_PATH, Profile { tx: tx.clone() })
-        .await?;
-    conn.object_server()
-        .at(IAP_CLIENT_PATH, Profile { tx: tx.clone() })
-        .await?;
-    conn.object_server()
-        .at(CARPLAY_PATH, Profile { tx })
-        .await?;
+    if cp_wireless {
+        conn.object_server()
+            .at(IAP_SERVER_PATH, Profile { tx: tx.clone() })
+            .await?;
+        conn.object_server()
+            .at(IAP_CLIENT_PATH, Profile { tx: tx.clone() })
+            .await?;
+        conn.object_server()
+            .at(CARPLAY_PATH, Profile { tx: tx.clone() })
+            .await?;
+    }
     conn.object_server().at(AGENT_PATH, Agent).await?;
 
+    if cp_wireless {
     let mut iap_opts: HashMap<&str, Value> = HashMap::new();
     iap_opts.insert("Role", Value::from("server"));
     iap_opts.insert("Channel", Value::from(IAP_CHANNEL));
@@ -180,6 +184,7 @@ pub async fn start(
     cp_opts.insert("RequireAuthorization", Value::from(false));
     if let Err(e) = register_profile(&conn, CARPLAY_PATH, CARPLAY_SERVICE_UUID, cp_opts).await {
         eprintln!("[cp] could not publish CarPlay service UUID: {e}");
+    }
     }
 
     conn.call_method(
@@ -219,7 +224,7 @@ pub async fn start(
     .await?;
     set_prop(&conn, &adapter_path, "Pairable", Value::from(discoverable)).await?;
 
-    Ok((conn, rx))
+    Ok((conn, rx, tx))
 }
 
 /// BlueZ publishes an adapter a moment after the kernel registers it, and a tunnelled controller
