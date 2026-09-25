@@ -2,8 +2,6 @@ import { execFile } from 'node:child_process'
 import { promisify } from 'node:util'
 import { resolveHelperBin } from '@main/services/projection/driver/helper/helperSupervisor'
 
-const exec = promisify(execFile)
-
 export type EthernetDhcpStatus = {
   installed: boolean
   enabled: boolean
@@ -14,7 +12,7 @@ export type EthernetDhcpStatus = {
 
 async function run(action: 'status' | 'on' | 'off' | 'set-fallback', value?: string): Promise<string> {
   if (process.platform !== 'linux') throw new Error('Ethernet DHCP is available on Linux only')
-  const { stdout } = await exec('sudo', ['-n', resolveHelperBin(), '--ethernet-dhcp', action, ...(value ? [value] : [])], {
+  const { stdout } = await promisify(execFile)('sudo', ['-n', resolveHelperBin(), '--ethernet-dhcp', action, ...(value ? [value] : [])], {
     timeout: 45_000,
     maxBuffer: 64 * 1024
   })

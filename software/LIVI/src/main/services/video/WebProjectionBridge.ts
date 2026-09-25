@@ -643,10 +643,19 @@ class WebProjectionBridge {
   private sendVideoFrame(socket: Socket, frame: Buffer, key: boolean): void {
     const transport = socket.conn.transport as unknown as { socket?: { bufferedAmount?: number } }
     if ((transport.socket?.bufferedAmount ?? 0) > 512 * 1024) {
+      if (!socket.data.needsKey) {
+        console.warn(`[WebBridge] viewer ${socket.id} backpressure; requesting keyframe`)
+      }
       socket.data.needsKey = true
+      this.requestKeyframe()
       return
     }
-    if (socket.data.needsKey && !key) return
+    if (socket.data.needsKey && !key) {
+      // The viewer cannot decode P-frames after a dropped frame. Keep asking for an IDR;
+      // otherwise a quiet encoder can leave it frozen until the page is refreshed.
+      this.requestKeyframe()
+      return
+    }
     socket.emit('video-frame', { key, data: frame })
     socket.data.needsKey = false
   }
